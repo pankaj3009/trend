@@ -111,6 +111,7 @@ if(length(args.commandline)>0){
 # args[3] is the redisdatabase
 redisConnect()
 redisSelect(1)
+today=strftime(Sys.Date(),tz=kTimeZone,format="%Y-%m-%d")
 bod<-paste(today, "09:08:00 IST",sep="")
 eod<-paste(today, "15:30:00 IST",sep="")
 if(length(args)>1){
@@ -119,6 +120,11 @@ if(length(args)>1){
         static<-redisHGetAll("TREND-LC-01")
 }
 
+newargs<-unlist(strsplit(static$args,","))
+if(length(args)<=1 && length(newargs>1)){
+        args<-newargs
+}
+redisClose()
 if(Sys.time()<bod){
         args[1]=1
 }else if(Sys.time()<eod){
@@ -126,13 +132,6 @@ if(Sys.time()<bod){
 }else{
         args[1]=3
 }
-
-newargs<-unlist(strsplit(static$args,","))
-if(length(args)<=1 && length(newargs>1)){
-        args<-newargs
-}
-redisClose()
-
 
 kWriteToRedis <- as.logical(static$WriteToRedis)
 kGetMarketData<-as.logical(static$GetMarketData)
@@ -236,7 +235,7 @@ if((args[1]==2) & file.exists("signals.rds") & file.exists("trades.rds")){
 }
 
 if(args[1]==2){
-       saveRDS(signals,"signals.rds")
+        saveRDS(signals,"signals.rds")
 }
 
 signals<-signals[order(signals$date),]
@@ -340,7 +339,7 @@ if(args[1]==2 && kWriteToRedis){
                         }
                         startingposition = startingpositionexcluding.this-change
                         
-#                        startingposition = endingposition - change
+                        #                        startingposition = endingposition - change
                         order=data.frame(
                                 ParentDisplayName=out[o,"symbol"],
                                 ChildDisplayName=out[o,"symbol"],
@@ -412,73 +411,68 @@ if(args[1]==2 && kWriteToRedis){
 
 if(args[1]==1 & kWriteToRedis){
         # write sl and tp levels on BOD
-        # first check BOD has not started
-        md<-loadSymbol("NSENIFTY",TRUE,"IND")
-        if(length(which(as.Date(md$date,tz="Asia/Kolkata")==Sys.Date()))==0){ # no data for today
-                # update strategy
-                strategyTrades<-createPNLSummary(args[3],args[2],kBackTestStartDate,kBackTestEndDate,mdpath=kFNODataFolder)
-                opentrades.index<-which(is.na(strategyTrades$exittime))
-                if(length(opentrades.index)>0){
-                        opentrades.index<-sort(opentrades.index)
-                        for(i in 1:length(opentrades.index)){
-                                ind<-opentrades.index[i]
-                                symbol<-strsplit(strategyTrades[ind,c("symbol")],"_")[[1]][1]
-                                signals.symbol<-signals[signals$symbol==symbol,]
-                                signals.symbol<-signals.symbol[order(signals$date),]
-                                df<-signals.symbol[nrow(signals.symbol),]
-                                trade.sl<-df$sl.level
-                                if(length(trade.sl)>0){
-                                        rredis::redisHSet(strategyTrades[ind,c("key")],"sl",charToRaw(as.character(trade.sl)))
-                                }
+        # update strategy
+        strategyTrades<-createPNLSummary(args[3],args[2],kBackTestStartDate,kBackTestEndDate,mdpath=kFNODataFolder)
+        opentrades.index<-which(is.na(strategyTrades$exittime))
+        if(length(opentrades.index)>0){
+                opentrades.index<-sort(opentrades.index)
+                for(i in 1:length(opentrades.index)){
+                        ind<-opentrades.index[i]
+                        symbol<-strsplit(strategyTrades[ind,c("symbol")],"_")[[1]][1]
+                        signals.symbol<-signals[signals$symbol==symbol,]
+                        signals.symbol<-signals.symbol[order(signals$date),]
+                        df<-signals.symbol[nrow(signals.symbol),]
+                        trade.sl<-df$sl.level
+                        if(length(trade.sl)>0){
+                                rredis::redisHSet(strategyTrades[ind,c("key")],"sl",charToRaw(as.character(trade.sl)))
                         }
                 }
-                # update execution
-                strategyTrades<-createPNLSummary(0,args[2],kBackTestStartDate,kBackTestEndDate,mdpath=kFNODataFolder)
-                opentrades.index<-which(is.na(strategyTrades$exittime))
-                if(length(opentrades.index)>0){
-                        opentrades.index<-sort(opentrades.index)
-                        for(i in 1:length(opentrades.index)){
-                                ind<-opentrades.index[i]
-                                symbol<-strsplit(strategyTrades[ind,c("symbol")],"_")[[1]][1]
-                                signals.symbol<-signals[signals$symbol==symbol,]
-                                signals.symbol<-signals.symbol[order(signals$date),]
-                                df<-signals.symbol[nrow(signals.symbol),]
-                                trade.sl<-df$sl.level
-                                if(length(trade.sl)>0){
-                                        rredis::redisHSet(strategyTrades[ind,c("key")],"sl",charToRaw(as.character(trade.sl)))
-                                }
+        }
+        # update execution
+        strategyTrades<-createPNLSummary(0,args[2],kBackTestStartDate,kBackTestEndDate,mdpath=kFNODataFolder)
+        opentrades.index<-which(is.na(strategyTrades$exittime))
+        if(length(opentrades.index)>0){
+                opentrades.index<-sort(opentrades.index)
+                for(i in 1:length(opentrades.index)){
+                        ind<-opentrades.index[i]
+                        symbol<-strsplit(strategyTrades[ind,c("symbol")],"_")[[1]][1]
+                        signals.symbol<-signals[signals$symbol==symbol,]
+                        signals.symbol<-signals.symbol[order(signals$date),]
+                        df<-signals.symbol[nrow(signals.symbol),]
+                        trade.sl<-df$sl.level
+                        if(length(trade.sl)>0){
+                                rredis::redisHSet(strategyTrades[ind,c("key")],"sl",charToRaw(as.character(trade.sl)))
                         }
                 }
         }
 }
-        
-        #### Print to folder ####
-        #trades <- GenerateTrades(a)
-        print(paste("Profit:",sum(trades$percentprofit)))
-        print(paste("Win Ratio:",sum(trades$percentprofit>0)/nrow(trades)))
-        print(paste("# Trades:",nrow(trades)))
-        print(trades[trades$exitreason=="",])
-        filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"trades.csv",sep="_")
-        write.csv(trades,file=filename)
-        filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"signals.csv",sep="_")
-        write.csv(a,file=filename)
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
+
+#### Print to folder ####
+#trades <- GenerateTrades(a)
+print(paste("Profit:",sum(trades$percentprofit)))
+print(paste("Win Ratio:",sum(trades$percentprofit>0)/nrow(trades)))
+print(paste("# Trades:",nrow(trades)))
+print(trades[trades$exitreason=="",])
+filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"trades.csv",sep="_")
+write.csv(trades,file=filename)
+filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"signals.csv",sep="_")
+write.csv(a,file=filename)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -412,7 +412,7 @@ if(args[1]==2 && kWriteToRedis){
 if(args[1]==1 & kWriteToRedis){
         # write sl and tp levels on BOD
         # update strategy
-        strategyTrades<-createPNLSummary(args[3],args[2],kBackTestStartDate,kBackTestEndDate,mdpath=kFNODataFolder)
+        strategyTrades<-createPNLSummary(args[3],args[2],kBackTestStartDate,kBackTestEndDate,mdpath=kFNODataFolder,deriv=TRUE)
         opentrades.index<-which(is.na(strategyTrades$exittime))
         if(length(opentrades.index)>0){
                 opentrades.index<-sort(opentrades.index)
@@ -420,7 +420,7 @@ if(args[1]==1 & kWriteToRedis){
                         ind<-opentrades.index[i]
                         symbol<-strsplit(strategyTrades[ind,c("symbol")],"_")[[1]][1]
                         signals.symbol<-signals[signals$symbol==symbol,]
-                        signals.symbol<-signals.symbol[order(signals$date),]
+                        signals.symbol<-signals.symbol[order(signals.symbol$date),]
                         df<-signals.symbol[nrow(signals.symbol),]
                         trade.sl<-df$sl.level
                         if(length(trade.sl)>0){
@@ -429,7 +429,7 @@ if(args[1]==1 & kWriteToRedis){
                 }
         }
         # update execution
-        strategyTrades<-createPNLSummary(0,args[2],kBackTestStartDate,kBackTestEndDate,mdpath=kFNODataFolder)
+        strategyTrades<-createPNLSummary(0,args[2],kBackTestStartDate,kBackTestEndDate,mdpath=kFNODataFolder,deriv=TRUE)
         opentrades.index<-which(is.na(strategyTrades$exittime))
         if(length(opentrades.index)>0){
                 opentrades.index<-sort(opentrades.index)
@@ -437,7 +437,7 @@ if(args[1]==1 & kWriteToRedis){
                         ind<-opentrades.index[i]
                         symbol<-strsplit(strategyTrades[ind,c("symbol")],"_")[[1]][1]
                         signals.symbol<-signals[signals$symbol==symbol,]
-                        signals.symbol<-signals.symbol[order(signals$date),]
+                        signals.symbol<-signals.symbol[order(signals.symbol$date),]
                         df<-signals.symbol[nrow(signals.symbol),]
                         trade.sl<-df$sl.level
                         if(length(trade.sl)>0){

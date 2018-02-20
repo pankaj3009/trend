@@ -9,6 +9,13 @@ options(scipen=999)
 longshortSignals<-function(s,realtime=FALSE,intraday=FALSE,type=NA_character_){
         print(paste("Processing: ",s,sep=""))
         md<-loadSymbol(s,realtime,type)
+        if(args[1]==2){
+                names.md<-names(md)
+                md.part.1<-md[md$date<md.cutoff|as.Date(md$date,tz="Asia/Kolkata")==Sys.Date(),]
+                md.part.2<-signals.yesterday[signals.yesterday$symbol==s & signals.yesterday$date>=md.cutoff & as.Date(signals.yesterday$date,tz="Asia/Kolkata")<Sys.Date(),names.md]
+                md<-rbind(md.part.1,md.part.2)
+                md<-md[order(md$date),]
+        }
         if(!is.na(md)[1]){
                 t<-Trend(md$date,md$ahigh,md$alow,md$settle)
                 md<-merge(md,t,by="date")
@@ -94,21 +101,24 @@ longshortSignals<-function(s,realtime=FALSE,intraday=FALSE,type=NA_character_){
                 md$risk = risk
                 md$sl.level=sl.level
                 md$tp.level=tp.level
-                md[md$date>=kBackTestStartDate & md$date<=kBackTestEndDate,]
+                md=md[md$date>=kBackTestStartDate & md$date<=kBackTestEndDate,]
+                md$eligible<-1
                 # candidates<-md[md$date>backteststart & md$date<backtestend & md$risk>0 & md$trend!=0 & md$risk<1,]
                 # candidates[complete.cases(candidates),]
+                md<-unique(md)
+                print(paste("completed: ",s,sep=""))
+                return(md)
         }
 }
+
 
 #### Parameters ####
 args.commandline=commandArgs(trailingOnly=TRUE)
 if(length(args.commandline)>0){
         args<-args.commandline
 }
-# args<-c("2","swing01","3")
-# args[1] is a flag for model building. 0=> Build Model, 1=> Generate Signals in Production 2=> Backtest and BootStrap 4=>Save BOD Signals to Redis
-# args[2] is the strategy name
-# args[3] is the redisdatabase
+# args<-c("2","trend-lc-01","4")
+# args[1] is a flag 1 => Run before bod, update sl levels in redis, 2=> Generate Signals in Production 3=> Backtest 
 redisConnect()
 redisSelect(1)
 today=strftime(Sys.Date(),tz=kTimeZone,format="%Y-%m-%d")
@@ -133,12 +143,26 @@ if(Sys.time()<bod){
         args[1]=3
 }
 
+md.cutoff<-Sys.time()
+if(args[1]==2){
+        signals.yesterday<-readRDS("signals.rds")
+        trades.yesterday<-readRDS("trades.rds")
+        opentrades<-trades.yesterday[trades.yesterday$exitreason=="",]
+        opentrades<-opentrades[order(opentrades$entrytime),]
+        if(nrow(opentrades>0)){
+                md.cutoff<-opentrades$entrytime[1]
+        }
+}
+md.cutoff<-as.POSIXct("2018-02-12",tz="Asia/Kolkata")
+
 kWriteToRedis <- as.logical(static$WriteToRedis)
 kGetMarketData<-as.logical(static$GetMarketData)
 kUseSystemDate<-as.logical(static$UseSystemDate)
 kDataCutOffBefore<-static$DataCutOffBefore
 kBackTestStartDate<-static$BackTestStartDate
 kBackTestEndDate<-static$BackTestEndDate
+#kBackTestStartDate<-"2007-01-01"
+#kBackTestEndDate<-"2007-12-31"
 kFNODataFolder <- static$FNODataFolder
 kNiftyDataFolder <- static$CashDataFolder
 kTimeZone <- static$TimeZone
@@ -160,13 +184,51 @@ realtime=TRUE
 intraday=FALSE
 today=strftime(Sys.Date(),tz=kTimeZone,format="%Y-%m-%d")
 
-#### Script ####
 
-niftysymbols <- createIndexConstituents(2, "nifty50", threshold = strftime(Sys.Date() -  90))
-#niftysymbols<-data.frame(symbol="YESBANK",startdate=as.Date("2017-01-01"),enddate=as.Date("2018-02-28"))
-#niftysymbols <- createFNOConstituents(2, "contractsize", threshold = strftime(Sys.Date() -  90))
-folots <- createFNOSize(2, "contractsize", threshold = strftime(Sys.Date() - 90))
-symbols <- niftysymbols$symbol
+#### Script ####
+#update splits
+redisConnect()
+redisSelect(2)
+a<-unlist(redisSMembers("splits")) # get values from redis in a vector
+tmp <- (strsplit(a, split="_")) # convert vector to list
+k<-lengths(tmp) # expansion size for each list element
+allvalues<-unlist(tmp) # convert list to vector
+splits <- data.frame(date=1:length(a), symbol=1:length(a),oldshares=1:length(a),newshares=1:length(a),reason=rep("",length(a)),stringsAsFactors = FALSE)
+for(i in 1:length(a)) {
+        for(j in 1:k[i]){
+                runsum=cumsum(k)[i]
+                splits[i, j] <- allvalues[runsum-k[i]+j]
+        }
+}
+splits$date=as.POSIXct(splits$date,format="%Y%m%d",tz="Asia/Kolkata")
+splits$oldshares<-as.numeric(splits$oldshares)
+splits$newshares<-as.numeric(splits$newshares)
+
+#update symbol change
+a<-unlist(redisSMembers("symbolchange")) # get values from redis in a vector
+tmp <- (strsplit(a, split="_")) # convert vector to list
+k<-lengths(tmp) # expansion size for each list element
+allvalues<-unlist(tmp) # convert list to vector
+symbolchange <- data.frame(date=rep("",length(a)), key=rep("",length(a)),newsymbol=rep("",length(a)),stringsAsFactors = FALSE)
+for(i in 1:length(a)) {
+        for(j in 1:k[i]){
+                runsum=cumsum(k)[i]
+                symbolchange[i, j] <- allvalues[runsum-k[i]+j]
+        }
+}
+symbolchange$date=as.POSIXct(symbolchange$date,format="%Y%m%d",tz="Asia/Kolkata")
+symbolchange$key = gsub("[^0-9A-Za-z/-]", "", symbolchange$key)
+symbolchange$newsymbol = gsub("[^0-9A-Za-z/-]", "", symbolchange$newsymbol)
+redisClose()
+
+niftysymbols <- createIndexConstituents(2, "nifty50", threshold = strftime(as.Date(kBackTestStartDate) -  90))
+niftysymbols<-niftysymbols[niftysymbols$startdate<=as.Date(kBackTestEndDate,tz=kTimeZone) & niftysymbols$enddate>=as.Date(kBackTestStartDate,tz=kTimeZone) ,]
+for(i in 1:nrow(niftysymbols)){
+        niftysymbols$symbol.latest[i]<-getMostRecentSymbol(niftysymbols$symbol[i],symbolchange$key,symbolchange$newsymbol)
+}
+
+folots <- createFNOSize(2, "contractsize", threshold = strftime(as.Date(kBackTestStartDate) -  90))
+symbols <- niftysymbols$symbol.latest
 options(scipen = 999)
 today = strftime(Sys.Date(), tz = kTimeZone, format = "%Y-%m-%d")
 alldata<-vector("list",length(symbols))
@@ -174,36 +236,20 @@ out <- data.frame()
 signals<-data.frame()
 allmd <- list()
 
-trades<-data.frame(
-        symbol=as.character(),
-        trend = as.numeric(),
-        days.in.trend = as.numeric(),
-        exp.swing.move = as.numeric(),
-        sl = as.numeric(),
-        tp = as.numeric(),
-        hh = as.numeric(),
-        ll = as.numeric(),
-        trend.hl.move = as.numeric(),
-        trend.settle.move = as.numeric(),
-        trend.daily.pr.move = as.numeric(),
-        risk = as.numeric(),
-        close = as.numeric(),
-        sl.level=as.numeric(),
-        tp.level=as.numeric(),
-        change = as.numeric(),
-        stringsAsFactors = FALSE
-)
 signals<-data.frame()
-for(s in symbols){
-        df=longshortSignals(s,realtime,intraday,"STK")
+for(i in 1:length(symbols)){
+        df=longshortSignals(symbols[i],realtime,intraday,"STK")
+        df$eligible = ifelse(as.Date(df$date) >= niftysymbols[i, c("startdate")] & as.Date(df$date) <= niftysymbols[i, c("enddate")],1,0)
+        df$symbol<-niftysymbols$symbol[i]
         if(nrow(signals)==0){
                 signals<-df
         }else{
                 signals<-rbind(signals,df)
         }
+        
 }
-signals$buy<-ifelse(signals$trend==1 & signals$risk<0.5 & signals$trend.daily.pr.move>0 & signals$days.in.trend>1,1,0)
-signals$short<-ifelse(signals$trend==-1 & signals$risk<0.5 & signals$trend.daily.pr.move<0 & signals$days.in.trend>1,1,0)
+signals$buy<-ifelse(signals$eligible==1 & signals$trend==1 & signals$risk<0.5 & signals$trend.daily.pr.move>0 & signals$days.in.trend>1,1,0)
+signals$short<-ifelse(signals$eligible==1  & signals$trend==-1 & signals$risk<0.5 & signals$trend.daily.pr.move<0 & signals$days.in.trend>1,1,0)
 signals$sell<-ifelse(signals$trend!=1,1,0)
 signals$cover<-ifelse(signals$trend!=-1,1,0)
 signals$buyprice = signals$asettle
@@ -216,35 +262,26 @@ signals$aclose <- signals$asettle
 dates <- unique(signals[order(signals$date), c("date")])
 signals$inlongtrade=ContinuingLong(signals$symbol,signals$buy,signals$sell,signals$short)
 signals$inshorttrade=ContinuingShort(signals$symbol,signals$short,signals$cover,signals$buy)
+signals1<-signals
+signals<-signals[order(signals$date),]
 
-
-if((args[1]==2) & file.exists("signals.rds") & file.exists("trades.rds")){
-        # Replace signals data where signals$date >= earliest opening trade
-        signals.old<-readRDS("signals.rds")
-        trades.old<-readRDS("trades.rds")
-        opentrades.date=trades.old[which(trades.old$exitreason==""),c("entrytime")]
-        if(length(opentrades.date)>0){
-                opentrades.date<-sort(opentrades.date)
-                cutoffdate<-opentrades.date[1]
-                signals.1.keep<-signals[signals$date<cutoffdate|as.Date(signals$date,tz="Asia/Kolkata")==Sys.Date(),]
-                signals.2.keep<-signals.old[signals.old$date>=cutoffdate,]
-                keep<-names(signals.2.keep)
-                signals.1.keep<-signals.1.keep[,names(signals.1.keep)%in%keep]
-                signals<-rbind(signals.1.keep,signals.2.keep)
-        }
-}
 
 if(args[1]==2){
         saveRDS(signals,"signals.rds")
 }
 
-signals<-signals[order(signals$date),]
 processedsignals<- ApplySLTP(signals,signals$sl,signals$tp)
 existingcol<-names(processedsignals)
 processedsignals<-cbind(processedsignals,signals[,!names(signals)%in%existingcol])
 processedsignals <- processedsignals[order(processedsignals$date), ]
-
 a <- ProcessPositionScore(processedsignals, 5, dates)
+
+# symbol might have changed. update to changed symbol
+x<-sapply(a$symbol,grep,symbolchange$key)
+potentialnames<-names(x)
+index.symbolchange<-match(a$symbol,symbolchange$key,nomatch = 1)
+a$symbol<-ifelse(index.symbolchange>1 & a$date>=symbolchange$date[index.symbolchange],potentialnames,a$symbol)
+
 a$currentmonthexpiry <- as.Date(sapply(a$date, getExpiryDate), tz = kTimeZone)
 nextexpiry <- as.Date(sapply(
         as.Date(a$currentmonthexpiry + 20, tz = kTimeZone),
@@ -254,7 +291,6 @@ a$entrycontractexpiry <- as.Date(ifelse(
         nextexpiry,a$currentmonthexpiry),tz = kTimeZone)
 
 a<-getClosestStrikeUniverse(a,kFNODataFolder,kNiftyDataFolder,kTimeZone)
-
 multisymbol<-function(uniquesymbols,df,fnodatafolder,equitydatafolder){
         out=NULL
         for(i in 1:length(unique(df$symbol))){
@@ -281,7 +317,7 @@ getcontractsize <- function (x, size) {
         
 }
 
-trades$size=NULL
+trades$entrysize=NULL
 novalue=strptime(NA_character_,"%Y-%m-%d")
 for(i in 1:nrow(trades)){
         symbolsvector=unlist(strsplit(trades$symbol[i],"_"))
@@ -300,8 +336,17 @@ trades$pnl<-ifelse(trades$exitprice==0|trades$entryprice==0,0,trades$entryprice*
 ### add sl and tp levels to trade
 trades.plus.signals<-merge(trades,signals,by.x=c("entrytime","cashsymbol"),by.y=c("date","symbol"))
 shortlisted.columns<-c("symbol","trade","entrytime","entryprice","exittime","exitprice","exitreason","percentprofit",
-                       "bars","size","brokerage","netpercentprofit","pnl","sl.level","tp.level")
+                       "bars","size","brokerage","netpercentprofit","pnl","sl.level","tp.level","splitadjust")
 trades<-trades.plus.signals[,shortlisted.columns]
+names(trades)[names(trades) == 'splitadjust'] <- 'entry.splitadjust'
+trades$cashsymbol<-sapply(strsplit(trades$symbol,"_"),"[",1)
+trades.plus.signals<-merge(trades,signals[,!names(signals)%in%c("sl.level","tp.level")],by.x=c("exittime","cashsymbol"),by.y=c("date","symbol"),all.x = TRUE)
+shortlisted.columns<-c("symbol","trade","entrytime","entryprice","exittime","exitprice","exitreason","percentprofit",
+                       "bars","size","brokerage","netpercentprofit","pnl","sl.level","tp.level","entry.splitadjust","splitadjust")
+trades<-trades.plus.signals[,shortlisted.columns]
+names(trades)[names(trades) == 'splitadjust'] <- 'exit.splitadjust'
+trades$exit.splitadjust<-ifelse(is.na(trades$exit.splitadjust),1,trades$exit.splitadjust)
+
 
 #### Write to Redis ####
 if(args[1]==2 && kWriteToRedis){
@@ -331,10 +376,10 @@ if(args[1]==2 && kWriteToRedis){
                         # Effectively, the abs(startingposition) should keep reducing for duplicate symbols.
                         startingpositionexcluding.this=GetCurrentPosition(out[o, "symbol"], trades[-exitindices[1:o],],trades.till = Sys.Date()-1,position.on = Sys.Date()-1)
                         if(grepl("BUY",out[o,"trade"])){
-                                change=-out[o,"size"]
+                                change=-out[o,"size"]*out[o,"entry.splitadjust"]/out[o,"exit.splitadjust"]
                                 side="SELL"
                         }else{
-                                change=out[o,"size"]
+                                change=out[o,"size"]*out[o,"entry.splitadjust"]/out[o,"exit.splitadjust"]
                                 side="COVER"
                         }
                         startingposition = startingpositionexcluding.this-change
@@ -347,9 +392,9 @@ if(args[1]==2 && kWriteToRedis){
                                 OrderReason="REGULAREXIT",
                                 OrderType="CUSTOMREL",
                                 OrderStage="INIT",
-                                StrategyOrderSize=out[o,"size"],
+                                StrategyOrderSize=out[o,"size"]*out[o,"entry.splitadjust"]/out[o,"exit.splitadjust"],
                                 StrategyStartingPosition=as.character(abs(startingposition)),
-                                DisplaySize="1",
+                                DisplaySize=out[o,"size"],
                                 TriggerPrice="0",
                                 Scale="TRUE",
                                 OrderReference=args[2],
@@ -389,7 +434,7 @@ if(args[1]==2 && kWriteToRedis){
                                 OrderStage="INIT",
                                 StrategyOrderSize=out[o,"size"],
                                 StrategyStartingPosition=as.character(abs(startingposition)),
-                                DisplaySize="1",
+                                DisplaySize=out[o,"size"],
                                 TriggerPrice="0",
                                 StopLoss=out[o,"sl.level"],
                                 TakeProfit=out[o,"tp.level"],
@@ -405,7 +450,7 @@ if(args[1]==2 && kWriteToRedis){
                 }
                 redisClose()
         }
-        saveRDS(trades,"trades.rds")
+       saveRDS(trades,"trades.rds")
         
 }
 

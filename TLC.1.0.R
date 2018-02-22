@@ -9,7 +9,7 @@ options(scipen=999)
 longshortSignals<-function(s,realtime=FALSE,intraday=FALSE,type=NA_character_){
         print(paste("Processing: ",s,sep=""))
         md<-loadSymbol(s,realtime,type)
-        if(args[1]==2){
+        if(!is.na(md) && args[1]==2){
                 names.md<-names(md)
                 md.part.1<-md[md$date<md.cutoff|as.Date(md$date,tz="Asia/Kolkata")==Sys.Date(),]
                 md.part.2<-signals.yesterday[signals.yesterday$symbol==s & signals.yesterday$date>=md.cutoff & as.Date(signals.yesterday$date,tz="Asia/Kolkata")<Sys.Date(),names.md]
@@ -107,8 +107,8 @@ longshortSignals<-function(s,realtime=FALSE,intraday=FALSE,type=NA_character_){
                 # candidates[complete.cases(candidates),]
                 md<-unique(md)
                 print(paste("completed: ",s,sep=""))
-                return(md)
         }
+        return(md)
 }
 
 
@@ -161,8 +161,8 @@ kUseSystemDate<-as.logical(static$UseSystemDate)
 kDataCutOffBefore<-static$DataCutOffBefore
 kBackTestStartDate<-static$BackTestStartDate
 kBackTestEndDate<-static$BackTestEndDate
-#kBackTestStartDate<-"2007-01-01"
-#kBackTestEndDate<-"2007-12-31"
+#kBackTestStartDate<-"2017-01-01"
+#kBackTestEndDate<-"2017-12-31"
 kFNODataFolder <- static$FNODataFolder
 kNiftyDataFolder <- static$CashDataFolder
 kTimeZone <- static$TimeZone
@@ -222,6 +222,8 @@ symbolchange$newsymbol = gsub("[^0-9A-Za-z/-]", "", symbolchange$newsymbol)
 redisClose()
 
 niftysymbols <- createIndexConstituents(2, "nifty50", threshold = strftime(as.Date(kBackTestStartDate) -  90))
+#niftysymbols <- createFNOConstituents(2, "contractsize", threshold = strftime(as.Date(kBackTestStartDate) -  90))
+
 niftysymbols<-niftysymbols[niftysymbols$startdate<=as.Date(kBackTestEndDate,tz=kTimeZone) & niftysymbols$enddate>=as.Date(kBackTestStartDate,tz=kTimeZone) ,]
 for(i in 1:nrow(niftysymbols)){
         niftysymbols$symbol.latest[i]<-getMostRecentSymbol(niftysymbols$symbol[i],symbolchange$key,symbolchange$newsymbol)
@@ -287,7 +289,7 @@ nextexpiry <- as.Date(sapply(
         as.Date(a$currentmonthexpiry + 20, tz = kTimeZone),
         getExpiryDate), tz = kTimeZone)
 a$entrycontractexpiry <- as.Date(ifelse(
-        businessDaysBetween("India",as.Date(a$date, tz = kTimeZone),a$currentmonthexpiry) <= 1,
+        businessDaysBetween("India",as.Date(a$date, tz = kTimeZone),a$currentmonthexpiry) < 1,
         nextexpiry,a$currentmonthexpiry),tz = kTimeZone)
 
 a<-getClosestStrikeUniverse(a,kFNODataFolder,kNiftyDataFolder,kTimeZone)
@@ -450,7 +452,7 @@ if(args[1]==2 && kWriteToRedis){
                 }
                 redisClose()
         }
-       saveRDS(trades,"trades.rds")
+        saveRDS(trades,"trades.rds")
         
 }
 
@@ -502,22 +504,3 @@ filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"trades.csv",sep="_")
 write.csv(trades,file=filename)
 filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"signals.csv",sep="_")
 write.csv(a,file=filename)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

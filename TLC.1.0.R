@@ -153,7 +153,6 @@ if(args[1]==2){
                 md.cutoff<-opentrades$entrytime[1]
         }
 }
-md.cutoff<-as.POSIXct("2018-02-12",tz="Asia/Kolkata")
 
 kWriteToRedis <- as.logical(static$WriteToRedis)
 kGetMarketData<-as.logical(static$GetMarketData)
@@ -161,8 +160,8 @@ kUseSystemDate<-as.logical(static$UseSystemDate)
 kDataCutOffBefore<-static$DataCutOffBefore
 kBackTestStartDate<-static$BackTestStartDate
 kBackTestEndDate<-static$BackTestEndDate
-#kBackTestStartDate<-"2017-01-01"
-#kBackTestEndDate<-"2017-12-31"
+# kBackTestStartDate<-"2012-01-01"
+# kBackTestEndDate<-"2012-12-31"
 kFNODataFolder <- static$FNODataFolder
 kNiftyDataFolder <- static$CashDataFolder
 kTimeZone <- static$TimeZone
@@ -230,7 +229,7 @@ for(i in 1:nrow(niftysymbols)){
 }
 
 folots <- createFNOSize(2, "contractsize", threshold = strftime(as.Date(kBackTestStartDate) -  90))
-symbols <- niftysymbols$symbol.latest
+symbols <- niftysymbols$symbol
 options(scipen = 999)
 today = strftime(Sys.Date(), tz = kTimeZone, format = "%Y-%m-%d")
 alldata<-vector("list",length(symbols))
@@ -348,6 +347,14 @@ shortlisted.columns<-c("symbol","trade","entrytime","entryprice","exittime","exi
 trades<-trades.plus.signals[,shortlisted.columns]
 names(trades)[names(trades) == 'splitadjust'] <- 'exit.splitadjust'
 trades$exit.splitadjust<-ifelse(is.na(trades$exit.splitadjust),1,trades$exit.splitadjust)
+
+# Adjust exit price for any splits during trade
+trades$exitprice=trades$exitprice*trades$entry.splitadjust/trades$exit.splitadjust
+trades$percentprofit=ifelse(grepl("SHORT",trades$trade),specify_decimal((trades$entryprice-trades$exitprice)/(trades$entryprice),2),specify_decimal((trades$exitprice-trades$entryprice)/(trades$entryprice),2))
+trades$brokerage <- ifelse(trades$exitprice==0|trades$entryprice==0,0,(kPerContractBrokerage*2) / (trades$size*trades$entryprice))
+trades$percentprofit<-ifelse(trades$exitprice==0|trades$entryprice==0,0,trades$percentprofit)
+trades$netpercentprofit <- trades$percentprofit - trades$brokerage
+trades$pnl<-ifelse(trades$exitprice==0|trades$entryprice==0,0,trades$entryprice*trades$netpercentprofit*trades$size)
 
 
 #### Write to Redis ####

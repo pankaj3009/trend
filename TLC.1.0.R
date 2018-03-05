@@ -161,7 +161,7 @@ kDataCutOffBefore<-static$DataCutOffBefore
 kBackTestStartDate<-static$BackTestStartDate
 kBackTestEndDate<-static$BackTestEndDate
 # kBackTestStartDate<-"2012-01-01"
-# kBackTestEndDate<-"2012-12-31"
+# kBackTestEndDate<-"2018-02-28"
 kFNODataFolder <- static$FNODataFolder
 kNiftyDataFolder <- static$CashDataFolder
 kTimeZone <- static$TimeZone
@@ -478,7 +478,7 @@ if(args[1]==1 & kWriteToRedis){
                         df<-signals.symbol[nrow(signals.symbol),]
                         trade.sl<-df$sl.level
                         if(length(trade.sl)>0){
-                                rredis::redisHSet(strategyTrades[ind,c("key")],"sl",charToRaw(as.character(trade.sl)))
+                                rredis::redisHSet(strategyTrades[ind,c("key")],"StopLoss",charToRaw(as.character(trade.sl)))
                         }
                 }
         }

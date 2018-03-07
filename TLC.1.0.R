@@ -9,7 +9,7 @@ options(scipen=999)
 longshortSignals<-function(s,realtime=FALSE,intraday=FALSE,type=NA_character_){
         print(paste("Processing: ",s,sep=""))
         md<-loadSymbol(s,realtime,type)
-        if(!is.na(md) && args[1]==2){
+        if(!is.na(md) && args[1]==4){
                 names.md<-names(md)
                 md.part.1<-md[md$date<md.cutoff|as.Date(md$date,tz="Asia/Kolkata")==Sys.Date(),]
                 md.part.2<-signals.yesterday[signals.yesterday$symbol==s & signals.yesterday$date>=md.cutoff & as.Date(signals.yesterday$date,tz="Asia/Kolkata")<Sys.Date(),names.md]
@@ -144,7 +144,7 @@ if(Sys.time()<bod){
 }
 
 md.cutoff<-Sys.time()
-if(args[1]==2){
+if(args[1]==4){
         signals.yesterday<-readRDS("signals.rds")
         trades.yesterday<-readRDS("trades.rds")
         opentrades<-trades.yesterday[trades.yesterday$exitreason=="",]
@@ -359,6 +359,7 @@ trades$pnl<-ifelse(trades$exitprice==0|trades$entryprice==0,0,trades$entryprice*
 
 #### Write to Redis ####
 if(args[1]==2 && kWriteToRedis){
+        levellog(logger, "INFO", paste("Starting scan for writing to Redis for ",args[2], sep = ""))
         entrysize = 0
         exitsize = 0
         if (length(which(as.Date(trades$entrytime,tz=kTimeZone) == Sys.Date())) >= 1) {
@@ -466,6 +467,7 @@ if(args[1]==2 && kWriteToRedis){
 if(args[1]==1 & kWriteToRedis){
         # write sl and tp levels on BOD
         # update strategy
+        levellog(logger, "INFO", paste("Starting scan for sl and tp update for ",args[2], sep = ""))
         strategyTrades<-createPNLSummary(args[3],args[2],kBackTestStartDate,kBackTestEndDate,mdpath=kFNODataFolder,deriv=TRUE)
         opentrades.index<-which(is.na(strategyTrades$exittime))
         if(length(opentrades.index)>0){

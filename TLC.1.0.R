@@ -479,8 +479,10 @@ if(args[1]==1 & kWriteToRedis){
                         signals.symbol<-signals.symbol[order(signals.symbol$date),]
                         df<-signals.symbol[nrow(signals.symbol),]
                         trade.sl<-df$sl.level
+                        trade.tp<-df$tp.level
                         if(length(trade.sl)>0){
                                 rredis::redisHSet(strategyTrades[ind,c("key")],"StopLoss",charToRaw(as.character(trade.sl)))
+                                rredis::redisHSet(strategyTrades[ind,c("key")],"TakeProfit",charToRaw(as.character(trade.tp)))
                         }
                 }
         }

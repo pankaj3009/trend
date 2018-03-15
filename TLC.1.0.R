@@ -494,15 +494,38 @@ if(args[1]==1 & kWriteToRedis){
                 for(i in 1:length(opentrades.index)){
                         ind<-opentrades.index[i]
                         symbol<-strsplit(strategyTrades[ind,c("symbol")],"_")[[1]][1]
-                        signals.symbol<-signals[signals$symbol==symbol,]
-                        signals.symbol<-signals.symbol[order(signals.symbol$date),]
-                        df<-signals.symbol[nrow(signals.symbol),]
+                        processedsignals.symbol<-processedsignals[processedsignals$symbol==symbol,]
+                        processedsignals.symbol<-processedsignals.symbol[order(processedsignals.symbol$date),]
+                        df<-processedsignals.symbol[nrow(processedsignals.symbol),]
                         trade.sl<-df$sl.level
                         trade.tp<-df$tp.level
                         if(length(trade.sl)>0){
-                                rredis::redisHSet(strategyTrades[ind,c("key")],"StopLoss",charToRaw(as.character(trade.sl)))
-                                rredis::redisHSet(strategyTrades[ind,c("key")],"TakeProfit",charToRaw(as.character(trade.tp)))
+                                if(trade.sl>0){
+                                        rredis::redisHSet(strategyTrades[ind,c("key")],"StopLoss",charToRaw(as.character(trade.sl)))        
+                                }else{
+                                        signals.symbol<-signals[signals$symbol==symbol,]
+                                        signals.symbol<-signals.symbol[order(signals.symbol$date),]
+                                        df<-signals.symbol[nrow(signals.symbol),]
+                                        trade.sl<-df$sl.level
+                                        if(length(trade.sl)>0){
+                                                rredis::redisHSet(strategyTrades[ind,c("key")],"StopLoss",charToRaw(as.character(trade.sl)))        
+                                        }
+                                }
                         }
+                        if(length(trade.tp)>0){
+                                if(trade.tp>0){
+                                        rredis::redisHSet(strategyTrades[ind,c("key")],"TakeProfit",charToRaw(as.character(trade.tp)))
+                                }else{
+                                        signals.symbol<-signals[signals$symbol==symbol,]
+                                        signals.symbol<-signals.symbol[order(signals.symbol$date),]
+                                        df<-signals.symbol[nrow(signals.symbol),]
+                                        trade.tp<-df$tp.level
+                                        if(length(trade.tp)>0){
+                                                rredis::redisHSet(strategyTrades[ind,c("key")],"TakeProfit",charToRaw(as.character(trade.tp)))        
+                                        }
+                                }
+                        }
+                        
                 }
         }
 }

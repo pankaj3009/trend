@@ -161,7 +161,7 @@ kDataCutOffBefore<-static$DataCutOffBefore
 kBackTestStartDate<-static$BackTestStartDate
 kBackTestEndDate<-static$BackTestEndDate
 # kBackTestStartDate<-"2012-01-01"
-# kBackTestEndDate<-"2018-02-28"
+# kBackTestEndDate<-"2018-03-15"
 kFNODataFolder <- static$FNODataFolder
 kNiftyDataFolder <- static$CashDataFolder
 kTimeZone <- static$TimeZone
@@ -268,7 +268,7 @@ signals<-signals[order(signals$date),]
 
 
 if(args[1]==2){
-        saveRDS(signals,"signals.rds")
+        saveRDS(signals,paste("signals","_",strftime(Sys.time(),"%Y%m%d %H:%M:%S"),".rds",sep=""))
 }
 
 processedsignals<- ApplySLTP(signals,signals$sl,signals$tp,volatilesl = FALSE,volatiletp = TRUE)
@@ -460,7 +460,7 @@ if(args[1]==2 && kWriteToRedis){
                 }
                 redisClose()
         }
-        saveRDS(trades,"trades.rds")
+        saveRDS(trades,paste("trades","_",strftime(Sys.time(),"%Y%m%d %H:%M:%S"),".rds",sep=""))
         
 }
 
@@ -537,6 +537,6 @@ print(paste("Win Ratio:",sum(trades$percentprofit>0)/nrow(trades)))
 print(paste("# Trades:",nrow(trades)))
 print(trades[trades$exitreason=="",])
 filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"trades.csv",sep="_")
-write.csv(trades,file=filename)
+#write.csv(trades,file=filename)
 filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"signals.csv",sep="_")
-write.csv(a,file=filename)
+#write.csv(a,file=filename)

@@ -3,12 +3,14 @@ library(zoo)
 library(rredis)
 library(log4r)
 library(jsonlite)
+library(TTR)
 options(scipen=999)
 
 #### functions ####
 longshortSignals<-function(s,realtime=FALSE,intraday=FALSE,type=NA_character_){
         print(paste("Processing: ",s,sep=""))
         md<-loadSymbol(s,realtime,type)
+        md=md[md$date<=kBackTestEndDate,]
         if(!is.na(md) && args[1]==4){
                 names.md<-names(md)
                 md.part.1<-md[md$date<md.cutoff|as.Date(md$date,tz="Asia/Kolkata")==Sys.Date(),]
@@ -26,24 +28,55 @@ longshortSignals<-function(s,realtime=FALSE,intraday=FALSE,type=NA_character_){
                 trend=0
                 trend<-ifelse(daysInUpTrend>daysInDownTrend,1,ifelse(daysInUpTrend<daysInDownTrend,-1,0))
                 daysinTrend<-ifelse(trend==1,daysInUpTrend,ifelse(trend==-1,daysInDownTrend,daysIndeterminate))
-                avgupswingindices<-which(diff(t$swinglevel)>0)
-                avgupswing<-rollmean(diff(md$swinglevel)[avgupswingindices],kRollingSwingAverage)
-                avgupswingindices<-avgupswingindices[(kRollingSwingAverage):length(avgupswingindices)]
-                md$averageupswing<-NA_real_
-                md$averageupswing[avgupswingindices]<-avgupswing
-                md$averageupswing<-na.locf(md$averageupswing,na.rm = FALSE)
-                md$averageupswing<-na.locf(md$averageupswing,fromLast = TRUE)
                 
-                avgdnswingindices<-which(diff(md$swinglevel)<0)
-                avgdnswing<-rollmean(diff(md$swinglevel)[avgdnswingindices],kRollingSwingAverage)
-                avgdnswingindices<-avgdnswingindices[(kRollingSwingAverage):length(avgdnswingindices)]
-                md$averagednswing<-NA_real_
-                md$averagednswing[avgdnswingindices]<- -1*avgdnswing
-                md$averagednswing<-na.locf(md$averagednswing,na.rm = FALSE)
-                md$averagednswing<-na.locf(md$averagednswing,fromLast = TRUE)
-                adjswinghigh=ifelse(md$trend==-1 & md$updownbar==1,md$swinghighhigh_1,md$swinghigh)
-                adjswinglow=ifelse(md$trend==1 & md$updownbar==-1,md$swinglowlow_1,md$swinglow)
+                if(volatile){
+                        avgupswingindices<-which(diff(t$swinglevel)>0)
+                        avgupswing<-rollmean(diff(md$swinglevel)[avgupswingindices],kRollingSwingAverage)
+                        avgupswingindices<-avgupswingindices[(kRollingSwingAverage):length(avgupswingindices)]
+                        md$averageupswing<-NA_real_
+                        md$averageupswing[avgupswingindices]<-avgupswing
+                        md$averageupswing<-na.locf(md$averageupswing,na.rm = FALSE)
+                        md$averageupswing<-na.locf(md$averageupswing,fromLast = TRUE)
+                        
+                        avgdnswingindices<-which(diff(md$swinglevel)<0)
+                        avgdnswing<-rollmean(diff(md$swinglevel)[avgdnswingindices],kRollingSwingAverage)
+                        avgdnswingindices<-avgdnswingindices[(kRollingSwingAverage):length(avgdnswingindices)]
+                        md$averagednswing<-NA_real_
+                        md$averagednswing[avgdnswingindices]<- -1*avgdnswing
+                        md$averagednswing<-na.locf(md$averagednswing,na.rm = FALSE)
+                        md$averagednswing<-na.locf(md$averagednswing,fromLast = TRUE)
+                }else{
+                        avgupswingindices<-which(diff(t$swinglevel)>0)
+                        upswingvalues<- diff(md$swinglevel)[avgupswingindices]
+                        upswingvalues<-upswingvalues[-length(upswingvalues)]
+                        avgupswingindices<-avgupswingindices+1
+                        avgupswingindices<-avgupswingindices[-1]
+                        avgupswing<-rollmean(upswingvalues,(kRollingSwingAverage-0))
+                        avgupswingindices<-avgupswingindices[(kRollingSwingAverage-0):length(avgupswingindices)]
+                        md$averageupswing<-NA_real_
+                        md$averageupswing[avgupswingindices]<-avgupswing
+                        md$averageupswing<-na.locf(md$averageupswing,na.rm = FALSE)
+                        md$averageupswing<-na.locf(md$averageupswing,fromLast = TRUE)
+                        md$averageupswing_1=md$averagednswing
+                        # md$averageupswing<- (md$averageupswing*(kRollingSwingAverage-1)+(md$swinghigh-md$swinglowlow))/3
+                        
+                        avgdnswingindices<-which(diff(md$swinglevel)<0)
+                        dnswingvalues<--1 * diff(md$swinglevel)[avgdnswingindices]
+                        dnswingvalues<-dnswingvalues[-length(dnswingvalues)]
+                        avgdnswingindices<-avgdnswingindices+1 # this moves the index to the row that has experienced the downswing
+                        avgdnswingindices<-avgdnswingindices[-1]
+                        #avgdnswingindices<-avgdnswingindices[1:(length(avgdnswingindices)-1)]
+                        avgdnswing<-rollmean(dnswingvalues,(kRollingSwingAverage-0))
+                        avgdnswingindices<-avgdnswingindices[(kRollingSwingAverage-0):length(avgdnswingindices)]
+                        md$averagednswing<-NA_real_
+                        md$averagednswing[avgdnswingindices]<- avgdnswing
+                        md$averagednswing<-na.locf(md$averagednswing,na.rm = FALSE)
+                        md$averagednswing<-na.locf(md$averagednswing,fromLast = TRUE) # handles leading NAs
+                        md$averagednswing_1<-md$averagednswing
+                        # md$averagednswing<- (md$averagednswing*(kRollingSwingAverage-1)+(md$swinghighhigh-md$swinglow))/3
+                }
                 
+
                 if(intraday){
                         uptrendsl =ifelse(md$trend==1,
                                           ifelse(md$updownbarclean==1 & md$updownbar==1,ifelse(Ref(md$updownbar,-1)==1,md$asettle-md$swinglowlow,md$asettle-md$swinglowlow_1),# handle scenario where we get an outside bar by eod whilst updownbarclean==1 during the day
@@ -77,12 +110,26 @@ longshortSignals<-function(s,realtime=FALSE,intraday=FALSE,type=NA_character_){
                                                                ifelse(md$updownbar==-1 & md$outsidebar==1,md$swinghighhigh_1-md$asettle,
                                                                       ifelse(md$updownbar==1 & md$insidebar==1,md$swinghighhigh_1-md$asettle,
                                                                              ifelse(md$updownbar==-1 & md$insidebar==1,md$swinghighhigh-md$asettle,0)))))),0)
+                        uptrendsl =ifelse(md$trend==1,
+                                             ifelse(md$swinghigh>md$swinghighhigh_1 & md$updownbar==1,md$asettle-md$swinglow,
+                                                    ifelse(md$swinghigh>md$swinghighhigh_1 & md$updownbar==-1,md$asettle-md$swinglowlow_1,
+                                                           ifelse(md$updownbar==-1,md$asettle-md$swinglow,md$asettle-md$alow))),0)
+
+
+                        dntrendsl =ifelse(md$trend==-1,
+                                             ifelse(md$swinglow<md$swinglowlow_1 & md$updownbar==-1,md$swinghigh-md$asettle,
+                                                    ifelse(md$swinglow<md$swinglowlow_1 & md$updownbar==1,md$swinghighhigh_1-md$asettle,
+                                                           ifelse(md$updownbar==1,md$swinghigh-md$asettle,md$ahigh-md$asettle))),0)
+
                         
                 }
                 
                 sl=uptrendsl+dntrendsl
-                
+                atr<-ATR(md[,c("ahigh","alow","asettle")],n=3)
+                md$tr<-atr[,"tr"]
+                md$atr<-atr[,"atr"]
                 tp<-ifelse(trend==1,md$averageupswing-(md$asettle-md$swinglow),ifelse(trend==-1,md$averagednswing-(md$swinghigh-md$asettle),0))
+               # tp<-md$atr*5
                 averagemove=ifelse(trend==1,md$averageupswing,ifelse(trend==-1,md$averagednswing,ifelse(md$updownbar==1,md$averageupswing,md$averagednswing)))
                 
                 hh=t$numberhh
@@ -105,8 +152,9 @@ longshortSignals<-function(s,realtime=FALSE,intraday=FALSE,type=NA_character_){
                 md$eligible<-1
                 # candidates<-md[md$date>backteststart & md$date<backtestend & md$risk>0 & md$trend!=0 & md$risk<1,]
                 # candidates[complete.cases(candidates),]
+                # md$sl.level<-Ref(md$sl.level,-1)
                 md<-unique(md)
-                print(paste("completed: ",s,sep=""))
+                # print(paste("completed: ",s,sep=""))
         }
         return(md)
 }
@@ -160,8 +208,8 @@ kUseSystemDate<-as.logical(static$UseSystemDate)
 kDataCutOffBefore<-static$DataCutOffBefore
 kBackTestStartDate<-static$BackTestStartDate
 kBackTestEndDate<-static$BackTestEndDate
-# kBackTestStartDate<-"2012-01-01"
-# kBackTestEndDate<-"2018-03-15"
+# kBackTestStartDate<-"2017-01-01"
+# kBackTestEndDate<-"2017-12-31"
 kFNODataFolder <- static$FNODataFolder
 kNiftyDataFolder <- static$CashDataFolder
 kTimeZone <- static$TimeZone
@@ -180,6 +228,7 @@ logfile(logger) <- kLogFile
 level(logger) <- 'INFO'
 
 realtime=TRUE
+volatile=TRUE
 intraday=FALSE
 today=strftime(Sys.Date(),tz=kTimeZone,format="%Y-%m-%d")
 
@@ -230,6 +279,7 @@ for(i in 1:nrow(niftysymbols)){
 
 folots <- createFNOSize(2, "contractsize", threshold = strftime(as.Date(kBackTestStartDate) -  90))
 symbols <- niftysymbols$symbol
+#symbols<-c("ICICIBANK")
 options(scipen = 999)
 today = strftime(Sys.Date(), tz = kTimeZone, format = "%Y-%m-%d")
 alldata<-vector("list",length(symbols))
@@ -241,7 +291,7 @@ signals<-data.frame()
 for(i in 1:length(symbols)){
         df=longshortSignals(symbols[i],realtime,intraday,"STK")
         df$eligible = ifelse(as.Date(df$date) >= niftysymbols[i, c("startdate")] & as.Date(df$date) <= niftysymbols[i, c("enddate")],1,0)
-        df$symbol<-niftysymbols$symbol[i]
+        df$symbol<-niftysymbols$symbol[grepl(paste("^",symbols[i],"$",sep=""),niftysymbols$symbol)]
         if(nrow(signals)==0){
                 signals<-df
         }else{
@@ -251,6 +301,8 @@ for(i in 1:length(symbols)){
 }
 signals$buy<-ifelse(signals$eligible==1 & signals$trend==1 & signals$risk<0.5 & signals$trend.daily.pr.move>0 & signals$days.in.trend>1,1,0)
 signals$short<-ifelse(signals$eligible==1  & signals$trend==-1 & signals$risk<0.5 & signals$trend.daily.pr.move<0 & signals$days.in.trend>1,1,0)
+#signals$buy<-ifelse(signals$eligible==1 & signals$trend==1 & signals$risk<0.5  & signals$aopen<signals$asettle & signals$days.in.trend>1,1,0)
+#signals$short<-ifelse(signals$eligible==1  & signals$trend==-1 & signals$risk<0.5 & signals$aopen>signals$asettle & signals$days.in.trend>1,1,0)
 signals$sell<-ifelse(signals$trend!=1,1,0)
 signals$cover<-ifelse(signals$trend!=-1,1,0)
 signals$buyprice = signals$asettle
@@ -264,25 +316,19 @@ dates <- unique(signals[order(signals$date), c("date")])
 signals$inlongtrade=ContinuingLong(signals$symbol,signals$buy,signals$sell,signals$short)
 signals$inshorttrade=ContinuingShort(signals$symbol,signals$short,signals$cover,signals$buy)
 signals1<-signals
-signals<-signals[order(signals$date),]
+signals<-signals[order(signals$date,signals$symbol),]
 
 
 if(args[1]==2){
         saveRDS(signals,paste("signals","_",strftime(Sys.time(),"%Y%m%d %H:%M:%S"),".rds",sep=""))
 }
 
-processedsignals<- ApplySLTP(signals,signals$sl,signals$tp,volatilesl = FALSE,volatiletp = TRUE)
-existingcol<-names(processedsignals)
-processedsignals<-cbind(processedsignals,signals[,!names(signals)%in%existingcol])
-processedsignals <- processedsignals[order(processedsignals$date), ]
-a <- ProcessPositionScore(processedsignals, 5, dates)
-
+a<-ProcessSignals(signals,signals$sl.level,signals$tp.level,volatilesl = TRUE,volatiletp = TRUE,maxposition=5,debug=FALSE)
 # symbol might have changed. update to changed symbol
 x<-sapply(a$symbol,grep,symbolchange$key)
 potentialnames<-names(x)
 index.symbolchange<-match(a$symbol,symbolchange$key,nomatch = 1)
 a$symbol<-ifelse(index.symbolchange>1 & a$date>=symbolchange$date[index.symbolchange],potentialnames,a$symbol)
-
 a$currentmonthexpiry <- as.Date(sapply(a$date, getExpiryDate), tz = kTimeZone)
 nextexpiry <- as.Date(sapply(
         as.Date(a$currentmonthexpiry + 20, tz = kTimeZone),

@@ -11,6 +11,13 @@ longshortSignals<-function(s,realtime=FALSE,intraday=FALSE,type=NA_character_){
         print(paste("Processing: ",s,sep=""))
         md<-loadSymbol(s,realtime,type)
         md=md[md$date<=kBackTestEndDate,]
+        # md.slope<-rollapply(md$asettle,91,slope)
+        # md$slope=c(rep(0,(length(md$asettle)-length(md.slope))),md.slope)
+        md$srsi<-RSI(md[,c("asettle")],n=23)
+        md$lrsi<-RSI(md[,c("alow")],n=23)
+        md$hrsi<-RSI(md[,c("ahigh")],n=23)
+        md$sma_l<-SMA(md[,c("asettle")],n=252)
+        md$sma_s<-SMA(md[,c("asettle")],n=5)
         if(!is.na(md) && args[1]==4){
                 names.md<-names(md)
                 md.part.1<-md[md$date<md.cutoff|as.Date(md$date,tz="Asia/Kolkata")==Sys.Date(),]
@@ -129,7 +136,7 @@ longshortSignals<-function(s,realtime=FALSE,intraday=FALSE,type=NA_character_){
                 md$tr<-atr[,"tr"]
                 md$atr<-atr[,"atr"]
                 tp<-ifelse(trend==1,md$averageupswing-(md$asettle-md$swinglow),ifelse(trend==-1,md$averagednswing-(md$swinghigh-md$asettle),0))
-               # tp<-md$atr*5
+                #tp<-md$atr*4
                 averagemove=ifelse(trend==1,md$averageupswing,ifelse(trend==-1,md$averagednswing,ifelse(md$updownbar==1,md$averageupswing,md$averagednswing)))
                 
                 hh=t$numberhh
@@ -159,6 +166,10 @@ longshortSignals<-function(s,realtime=FALSE,intraday=FALSE,type=NA_character_){
         return(md)
 }
 
+slope <- function (x) {
+        res <- (lm(log(x) ~ seq(1:length(x))))
+        res$coefficients[2]
+}
 
 #### Parameters ####
 args.commandline=commandArgs(trailingOnly=TRUE)
@@ -208,8 +219,8 @@ kUseSystemDate<-as.logical(static$UseSystemDate)
 kDataCutOffBefore<-static$DataCutOffBefore
 kBackTestStartDate<-static$BackTestStartDate
 kBackTestEndDate<-static$BackTestEndDate
-# kBackTestStartDate<-"2017-01-01"
-# kBackTestEndDate<-"2017-12-31"
+#kBackTestStartDate<-"2017-01-01"
+#kBackTestEndDate<-"2017-12-31"
 kFNODataFolder <- static$FNODataFolder
 kNiftyDataFolder <- static$CashDataFolder
 kTimeZone <- static$TimeZone
@@ -228,7 +239,7 @@ logfile(logger) <- kLogFile
 level(logger) <- 'INFO'
 
 realtime=TRUE
-volatile=TRUE
+volatile=FALSE
 intraday=FALSE
 today=strftime(Sys.Date(),tz=kTimeZone,format="%Y-%m-%d")
 
@@ -299,10 +310,17 @@ for(i in 1:length(symbols)){
         }
         
 }
-signals$buy<-ifelse(signals$eligible==1 & signals$trend==1 & signals$risk<0.5 & signals$trend.daily.pr.move>0 & signals$days.in.trend>1,1,0)
-signals$short<-ifelse(signals$eligible==1  & signals$trend==-1 & signals$risk<0.5 & signals$trend.daily.pr.move<0 & signals$days.in.trend>1,1,0)
-#signals$buy<-ifelse(signals$eligible==1 & signals$trend==1 & signals$risk<0.5  & signals$aopen<signals$asettle & signals$days.in.trend>1,1,0)
-#signals$short<-ifelse(signals$eligible==1  & signals$trend==-1 & signals$risk<0.5 & signals$aopen>signals$asettle & signals$days.in.trend>1,1,0)
+nsenifty<-loadSymbol("NSENIFTY")
+trend<-Trend(nsenifty$date,nsenifty$high,nsenifty$low,nsenifty$settle)
+nsenifty$trendindex<-trend$trend
+signals<-merge(signals,nsenifty[,c("date","trendindex")],by=c("date"))
+
+signals$buy<-ifelse(signals$eligible==1 & signals$trend==1 & signals$risk<0.5 & signals$days.in.trend>1 & signals$trendindex<=0,1,0)
+signals$short<-ifelse(signals$eligible==1  & signals$trend==-1 & signals$risk<0.5 & signals$days.in.trend>1 & signals$trendindex>=0,1,0)
+# signals$buy<-ifelse(signals$eligible==1 & signals$trend==1 & signals$risk<0.5 & signals$days.in.trend>1 & signals$trendindex<=0,1,0)
+# signals$short<-ifelse(signals$eligible==1  & signals$trend==-1 & signals$risk<0.5 & signals$days.in.trend>1 & signals$trendindex>=0,1,0)
+#signals$buy<-ifelse(signals$eligible==1 & signals$trend==1 & signals$risk<0.5  & (signals$aopen-signals$asettle)<signals$atr  & signals$days.in.trend>1,1,0)
+#signals$short<-ifelse(signals$eligible==1  & signals$trend==-1 & signals$risk<0.5 & (signals$asettle-signals$aopen)<signals$atr & signals$days.in.trend>1,1,0)
 signals$sell<-ifelse(signals$trend!=1,1,0)
 signals$cover<-ifelse(signals$trend!=-1,1,0)
 signals$buyprice = signals$asettle
@@ -310,6 +328,7 @@ signals$sellprice = signals$asettle
 signals$shortprice = signals$asettle
 signals$coverprice = signals$asettle
 signals$positionscore<-100-signals$risk
+signals$positionscore<-ifelse(signals$buy>0,100-signals$srsi,signals$srsi) 
 signals[is.na(signals)]<-0
 signals$aclose <- signals$asettle
 dates <- unique(signals[order(signals$date), c("date")])
@@ -323,7 +342,7 @@ if(args[1]==2){
         saveRDS(signals,paste("signals","_",strftime(Sys.time(),"%Y%m%d %H:%M:%S"),".rds",sep=""))
 }
 
-a<-ProcessSignals(signals,signals$sl.level,signals$tp.level,volatilesl = TRUE,volatiletp = TRUE,maxposition=5,debug=FALSE)
+a<-ProcessSignals(signals,signals$sl.level,signals$tp.level,volatilesl = TRUE,volatiletp = TRUE,maxposition=5,scalein=TRUE,debug=FALSE)
 # symbol might have changed. update to changed symbol
 x<-sapply(a$symbol,grep,symbolchange$key)
 potentialnames<-names(x)

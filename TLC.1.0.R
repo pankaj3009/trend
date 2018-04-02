@@ -236,7 +236,7 @@ logger <- create.logger()
 logfile(logger) <- kLogFile
 level(logger) <- 'INFO'
 
-realtime=FALSE
+realtime=TRUE
 volatile=FALSE
 intraday=FALSE
 today=strftime(Sys.Date(),tz=kTimeZone,format="%Y-%m-%d")
@@ -307,7 +307,7 @@ for(i in 1:length(symbols)){
         }
         
 }
-nsenifty<-loadSymbol("NSENIFTY")
+nsenifty<-loadSymbol("NSENIFTY",realtime,"IND")
 trend<-Trend(nsenifty$date,nsenifty$high,nsenifty$low,nsenifty$settle)
 nsenifty$trendindex<-trend$trend
 signals<-merge(signals,nsenifty[,c("date","trendindex")],by=c("date"))
@@ -352,12 +352,12 @@ trades$exitmonth <- as.Date(sapply(trades$exittime, getExpiryDate), tz = kTimeZo
 nextexpiry <- as.Date(sapply(as.Date(trades$exitmonth + 20, tz = kTimeZone), getExpiryDate), tz = kTimeZone)
 trades$exitcontractexpiry <- as.Date(ifelse(businessDaysBetween("India",as.Date(trades$exittime, tz = kTimeZone),trades$exitmonth) < 1,nextexpiry,trades$exitmonth),tz = kTimeZone)
 trades<-getStrikeByClosestSettlePrice(trades,kFNODataFolder,kNiftyDataFolder,kTimeZone)
-trades<-MapToFutureTrades(trades,kFNODataFolder,kNiftyDataFolder,TRUE)
+futureTrades<-MapToFutureTrades(trades,kFNODataFolder,kNiftyDataFolder,TRUE)
 
 #### update size and calculate pnl ####
-if(nrow(trades)>0){
-        trades <- trades[order(trades$entrytime), ]
-        trades$cashsymbol<-sapply(strsplit(trades$symbol,"_"),"[",1)
+if(nrow(futureTrades)>0){
+        futureTrades <- futureTrades[order(futureTrades$entrytime), ]
+        futureTrades$cashsymbol<-sapply(strsplit(futureTrades$symbol,"_"),"[",1)
         getcontractsize <- function (x, size) {
                 a <- size[size$startdate <= as.Date(x) & size$enddate >= as.Date(x), ]
                 if (nrow(a) > 0) {
@@ -370,53 +370,53 @@ if(nrow(trades)>0){
                 
         }
         
-        trades$entrysize=NULL
+        futureTrades$entrysize=NULL
         novalue=strptime(NA_character_,"%Y-%m-%d")
-        for(i in 1:nrow(trades)){
-                symbolsvector=unlist(strsplit(trades$symbol[i],"_"))
+        for(i in 1:nrow(futureTrades)){
+                symbolsvector=unlist(strsplit(futureTrades$symbol[i],"_"))
                 allsize = folots[folots$symbol == symbolsvector[1], ]
-                trades$size[i]=getcontractsize(trades$entrytime[i],allsize)
-                if(as.numeric(trades$exittime[i])==0){
-                        trades$exittime[i]=novalue
+                futureTrades$size[i]=getcontractsize(futureTrades$entrytime[i],allsize)
+                if(as.numeric(futureTrades$exittime[i])==0){
+                        futureTrades$exittime[i]=novalue
                 }
         }        
         
         
         
-        trades$entrybrokerage=ifelse(trades$entryprice==0,0,ifelse(grepl("BUY",trades$trade),kPerContractBrokerage+trades$entryprice*trades$size*kValueBrokerage,kPerContractBrokerage+trades$entryprice*trades$size*(kValueBrokerage+kSTTSell)))
-        trades$exitbrokerage=ifelse(trades$exitprice==0,0,ifelse(grepl("BUY",trades$trade),kPerContractBrokerage+trades$entryprice*trades$size*kValueBrokerage,kPerContractBrokerage+trades$entryprice*trades$size*(kValueBrokerage+kSTTSell)))
-        trades$brokerageamount=trades$exitbrokerage+trades$entrybrokerage
-        trades$brokerage=trades$brokerageamount/((trades$entryprice+trades$exitprice)*trades$size)
-        trades$percentprofit<-ifelse(grepl("BUY",trades$trade),(trades$exitprice-trades$entryprice)/trades$entryprice,-(trades$exitprice-trades$entryprice)/trades$entryprice)
-        trades$percentprofit<-ifelse(trades$exitprice==0|trades$entryprice==0,0,trades$percentprofit)
-        trades$netpercentprofit <- trades$percentprofit - trades$brokerage
-        trades$pnl<-ifelse(trades$exitprice==0|trades$entryprice==0,0,trades$entryprice*trades$netpercentprofit*trades$size)
+        futureTrades$entrybrokerage=ifelse(futureTrades$entryprice==0,0,ifelse(grepl("BUY",futureTrades$trade),kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*kValueBrokerage,kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*(kValueBrokerage+kSTTSell)))
+        futureTrades$exitbrokerage=ifelse(futureTrades$exitprice==0,0,ifelse(grepl("BUY",futureTrades$trade),kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*kValueBrokerage,kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*(kValueBrokerage+kSTTSell)))
+        futureTrades$brokerageamount=futureTrades$exitbrokerage+futureTrades$entrybrokerage
+        futureTrades$brokerage=futureTrades$brokerageamount/((futureTrades$entryprice+futureTrades$exitprice)*futureTrades$size)
+        futureTrades$percentprofit<-ifelse(grepl("BUY",futureTrades$trade),(futureTrades$exitprice-futureTrades$entryprice)/futureTrades$entryprice,-(futureTrades$exitprice-futureTrades$entryprice)/futureTrades$entryprice)
+        futureTrades$percentprofit<-ifelse(futureTrades$exitprice==0|futureTrades$entryprice==0,0,futureTrades$percentprofit)
+        futureTrades$netpercentprofit <- futureTrades$percentprofit - futureTrades$brokerage
+        futureTrades$pnl<-ifelse(futureTrades$exitprice==0|futureTrades$entryprice==0,0,futureTrades$entryprice*futureTrades$netpercentprofit*futureTrades$size)
         
         ### add sl and tp levels to trade
-        trades.plus.signals<-merge(trades,signals,by.x=c("entrytime","cashsymbol"),by.y=c("date","symbol"))
+        futureTrades.plus.signals<-merge(futureTrades,signals,by.x=c("entrytime","cashsymbol"),by.y=c("date","symbol"))
         shortlisted.columns<-c("symbol","trade","entrytime","entryprice","exittime","exitprice","exitreason","percentprofit",
                                "bars","size","brokerage","netpercentprofit","pnl","sl.level","tp.level","splitadjust")
-        trades<-trades.plus.signals[,shortlisted.columns]
-        names(trades)[names(trades) == 'splitadjust'] <- 'entry.splitadjust'
-        trades$cashsymbol<-sapply(strsplit(trades$symbol,"_"),"[",1)
-        trades.plus.signals<-merge(trades,signals[,!names(signals)%in%c("sl.level","tp.level")],by.x=c("exittime","cashsymbol"),by.y=c("date","symbol"),all.x = TRUE)
+        futureTrades<-futureTrades.plus.signals[,shortlisted.columns]
+        names(futureTrades)[names(futureTrades) == 'splitadjust'] <- 'entry.splitadjust'
+        futureTrades$cashsymbol<-sapply(strsplit(futureTrades$symbol,"_"),"[",1)
+        futureTrades.plus.signals<-merge(futureTrades,signals[,!names(signals)%in%c("sl.level","tp.level")],by.x=c("exittime","cashsymbol"),by.y=c("date","symbol"),all.x = TRUE)
         shortlisted.columns<-c("symbol","trade","entrytime","entryprice","exittime","exitprice","exitreason","percentprofit",
                                "bars","size","brokerage","netpercentprofit","pnl","sl.level","tp.level","entry.splitadjust","splitadjust")
-        trades<-trades.plus.signals[,shortlisted.columns]
-        names(trades)[names(trades) == 'splitadjust'] <- 'exit.splitadjust'
-        trades$exit.splitadjust<-ifelse(is.na(trades$exit.splitadjust),1,trades$exit.splitadjust)
+        futureTrades<-futureTrades.plus.signals[,shortlisted.columns]
+        names(futureTrades)[names(futureTrades) == 'splitadjust'] <- 'exit.splitadjust'
+        futureTrades$exit.splitadjust<-ifelse(is.na(futureTrades$exit.splitadjust),1,futureTrades$exit.splitadjust)
         
         # Adjust exit price for any splits during trade
         # uncomment the next line only for futures
-        # trades$exitprice=trades$exitprice*trades$entry.splitadjust/trades$exit.splitadjust
-        trades$percentprofit=ifelse(grepl("SHORT",trades$trade),specify_decimal((trades$entryprice-trades$exitprice)/(trades$entryprice),2),specify_decimal((trades$exitprice-trades$entryprice)/(trades$entryprice),2))
-        trades$entrybrokerage=ifelse(trades$entryprice==0,0,ifelse(grepl("BUY",trades$trade),kPerContractBrokerage+trades$entryprice*trades$size*kValueBrokerage,kPerContractBrokerage+trades$entryprice*trades$size*(kValueBrokerage+kSTTSell)))
-        trades$exitbrokerage=ifelse(trades$exitprice==0,0,ifelse(grepl("BUY",trades$trade),kPerContractBrokerage+trades$entryprice*trades$size*kValueBrokerage,kPerContractBrokerage+trades$entryprice*trades$size*(kValueBrokerage+kSTTSell)))
-        trades$brokerageamount=trades$exitbrokerage+trades$entrybrokerage
-        trades$brokerage=trades$brokerageamount/((trades$entryprice+trades$exitprice)*trades$size)
-        trades$percentprofit<-ifelse(trades$exitprice==0|trades$entryprice==0,0,trades$percentprofit)
-        trades$netpercentprofit <- trades$percentprofit - trades$brokerage
-        trades$pnl<-ifelse(trades$exitprice==0|trades$entryprice==0,0,trades$entryprice*trades$netpercentprofit*trades$size)
+        # futureTrades$exitprice=futureTrades$exitprice*futureTrades$entry.splitadjust/futureTrades$exit.splitadjust
+        futureTrades$percentprofit=ifelse(grepl("SHORT",futureTrades$trade),specify_decimal((futureTrades$entryprice-futureTrades$exitprice)/(futureTrades$entryprice),2),specify_decimal((futureTrades$exitprice-futureTrades$entryprice)/(futureTrades$entryprice),2))
+        futureTrades$entrybrokerage=ifelse(futureTrades$entryprice==0,0,ifelse(grepl("BUY",futureTrades$trade),kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*kValueBrokerage,kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*(kValueBrokerage+kSTTSell)))
+        futureTrades$exitbrokerage=ifelse(futureTrades$exitprice==0,0,ifelse(grepl("BUY",futureTrades$trade),kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*kValueBrokerage,kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*(kValueBrokerage+kSTTSell)))
+        futureTrades$brokerageamount=futureTrades$exitbrokerage+futureTrades$entrybrokerage
+        futureTrades$brokerage=futureTrades$brokerageamount/((futureTrades$entryprice+futureTrades$exitprice)*futureTrades$size)
+        futureTrades$percentprofit<-ifelse(futureTrades$exitprice==0|futureTrades$entryprice==0,0,futureTrades$percentprofit)
+        futureTrades$netpercentprofit <- futureTrades$percentprofit - futureTrades$brokerage
+        futureTrades$pnl<-ifelse(futureTrades$exitprice==0|futureTrades$entryprice==0,0,futureTrades$entryprice*futureTrades$netpercentprofit*futureTrades$size)
         
         
         #### Write to Redis ####
@@ -424,13 +424,13 @@ if(nrow(trades)>0){
                 levellog(logger, "INFO", paste("Starting scan for writing to Redis for ",args[2], sep = ""))
                 entrysize = 0
                 exitsize = 0
-                if (length(which(as.Date(trades$entrytime,tz=kTimeZone) == Sys.Date())) >= 1) {
-                        entrytime=which(as.Date(trades$entrytime,tz=kTimeZone) == Sys.Date())
-                        entrysize = sum(trades[entrytime, c("size")])
+                if (length(which(as.Date(futureTrades$entrytime,tz=kTimeZone) == Sys.Date())) >= 1) {
+                        entrytime=which(as.Date(futureTrades$entrytime,tz=kTimeZone) == Sys.Date())
+                        entrysize = sum(futureTrades[entrytime, c("size")])
                 }
-                if (length(which(as.Date(trades$exittime,tz=kTimeZone) == Sys.Date() && trades$exitreason!="Open")) >= 1) {
-                        exittime=which(as.Date(trades$exittime,tz=kTimeZone) == Sys.Date())
-                        exitsize = sum(trades[exittime, c("size")])
+                if (length(which(as.Date(futureTrades$exittime,tz=kTimeZone) == Sys.Date() && futureTrades$exitreason!="Open")) >= 1) {
+                        exittime=which(as.Date(futureTrades$exittime,tz=kTimeZone) == Sys.Date())
+                        exitsize = sum(futureTrades[exittime, c("size")])
                 }
                 
                 #Exit First, then enter
@@ -439,14 +439,14 @@ if(nrow(trades)>0){
                 if (exitsize > 0 & kWriteToRedis) {
                         redisConnect()
                         redisSelect(args[3])
-                        exitindices<-which(as.Date(trades$exittime,tz=kTimeZone) == Sys.Date())
-                        out <- trades[exitindices,]
+                        exitindices<-which(as.Date(futureTrades$exittime,tz=kTimeZone) == Sys.Date())
+                        out <- futureTrades[exitindices,]
                         for (o in 1:nrow(out)) {
                                 change = 0
                                 side = "UNDEFINED"
-                                # calculate starting positions by excluding trades already considered in this & prior iterations. 
+                                # calculate starting positions by excluding futureTrades already considered in this & prior iterations. 
                                 # Effectively, the abs(startingposition) should keep reducing for duplicate symbols.
-                                startingpositionexcluding.this=GetCurrentPosition(out[o, "symbol"], trades[-exitindices[1:o],],trades.till = Sys.Date()-1,position.on = Sys.Date()-1)
+                                startingpositionexcluding.this=GetCurrentPosition(out[o, "symbol"], futureTrades[-exitindices[1:o],],futureTrades.till = Sys.Date()-1,position.on = Sys.Date()-1)
                                 if(grepl("BUY",out[o,"trade"])){
                                         change=-out[o,"size"]*out[o,"entry.splitadjust"]/out[o,"exit.splitadjust"]
                                         side="SELL"
@@ -484,9 +484,9 @@ if(nrow(trades)>0){
                 if (entrysize > 0 & kWriteToRedis) {
                         redisConnect()
                         redisSelect(args[3])
-                        out <- trades[which(as.Date(trades$entrytime,tz=kTimeZone) == Sys.Date()),]
+                        out <- futureTrades[which(as.Date(futureTrades$entrytime,tz=kTimeZone) == Sys.Date()),]
                         for (o in 1:nrow(out)) {
-                                endingposition=GetCurrentPosition(out[o, "symbol"], trades)
+                                endingposition=GetCurrentPosition(out[o, "symbol"], futureTrades)
                                 change = 0
                                 side = "UNDEFINED"
                                 if(grepl("BUY",out[o,"trade"])){
@@ -522,7 +522,7 @@ if(nrow(trades)>0){
                         }
                         redisClose()
                 }
-                saveRDS(trades,paste("trades","_",strftime(Sys.time(),"%Y%m%d %H:%M:%S"),".rds",sep=""))
+                saveRDS(futureTrades,paste("futureTrades","_",strftime(Sys.time(),"%Y%m%d %H:%M:%S"),".rds",sep=""))
                 
         }
         
@@ -592,14 +592,32 @@ if(nrow(trades)>0){
                 }
         }
         
-        #### Print to folder ####
-        #trades <- GenerateTrades(a)
-        print(paste("Profit:",sum(trades$pnl)))
-        print(paste("Win Ratio:",sum(trades$netpercentprofit>0)/nrow(trades)))
-        print(paste("# Trades:",nrow(trades)))
-        print(trades[trades$exitreason=="",])
+        #### Print Open Positions ####
+        #futureTrades <- GenerateTrades(a)
+        print(paste("Profit:",sum(futureTrades$pnl)))
+        print(paste("Win Ratio:",sum(futureTrades$netpercentprofit>0)/nrow(futureTrades)))
+        print(paste("# Trades:",nrow(futureTrades)))
+        print(futureTrades[futureTrades$exitreason=="Open",])
         filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"trades.csv",sep="_")
         #write.csv(trades,file=filename)
         filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"signals.csv",sep="_")
         #write.csv(a,file=filename)        
+        
+        include<-c("date","symbol","trend","updownbar","outsidebar","insidebar","risk","sl.level","tp.level","close")
+        longtrades<-signals[signals$trend==1 & as.Date(format(signals$date),tz="Asia/Kolkata")==Sys.Date(),]
+        print("Long Trades...")
+        print(longtrades[order(longtrades$risk),(names(longtrades) %in% include)])
+        shorttrades<-signals[signals$trend==-1 & as.Date(format(signals$date),tz="Asia/Kolkata")==Sys.Date(),]
+        print("----------------------------------------------------------------------------------")
+        print("Short Trades...")
+        print(shorttrades[order(shorttrades$risk),(names(shorttrades) %in% include)])
+        longs=nrow(longtrades)/length(symbols)
+        shorts=nrow(shorttrades)/length(symbols)
+        indeterminate=(length(symbols)-nrow(longtrades)-nrow(shorttrades))/length(symbols)
+        averageLongMaturity=sum(longtrades$days.in.trend)/nrow(longtrades)
+        averageShortMaturity=sum(shorttrades$days.in.trend)/nrow(shorttrades)
+        averageInderminateMaturity=sum(signals[signals$trend==0 & as.Date(format(signals$date),tz="Asia/Kolkata")==Sys.Date() ,c("days.in.trend")])/(length(symbols)-nrow(longtrades)-nrow(shorttrades))
+        out<-paste("Market Sentiment - Long:",longs*100,", Short:",shorts*100,", Maturity:",(averageLongMaturity*longs-averageShortMaturity*shorts),sep="")
+        print(out)
+
 }

@@ -27,9 +27,9 @@ longshortSignals<-function(s,realtime=FALSE,intraday=FALSE,type=NA_character_){
         if(!is.na(md)[1]){
                 t<-Trend(md$date,md$ahigh,md$alow,md$settle)
                 md<-merge(md,t,by="date")
-                daysInUpTrend=RTrade::BarsSince(md$trend!=1)
-                daysInDownTrend=RTrade::BarsSince(md$trend!=-1)
-                daysIndeterminate=RTrade::BarsSince(md$trend!=0)
+                daysInUpTrend=BarsSince(md$trend!=1)
+                daysInDownTrend=BarsSince(md$trend!=-1)
+                daysIndeterminate=BarsSince(md$trend!=0)
                 daysinTrend=0
                 trend=0
                 trend<-ifelse(daysInUpTrend>daysInDownTrend,1,ifelse(daysInUpTrend<daysInDownTrend,-1,0))
@@ -174,8 +174,8 @@ if(length(args.commandline)>0){
 redisConnect()
 redisSelect(1)
 today=strftime(Sys.Date(),tz=kTimeZone,format="%Y-%m-%d")
-bod<-paste(today, "09:08:00 IST",sep="")
-eod<-paste(today, "15:30:00 IST",sep="")
+bod<-paste(today, "09:08:00 IST",sep=" ")
+eod<-paste(today, "15:30:00 IST",sep=" ")
 if(length(args)>1){
         static<-redisHGetAll(toupper(args[2]))
 }else{
@@ -278,7 +278,7 @@ symbolchange$key = gsub("[^0-9A-Za-z/-]", "", symbolchange$key)
 symbolchange$newsymbol = gsub("[^0-9A-Za-z/-]", "", symbolchange$newsymbol)
 redisClose()
 
-niftysymbols <- createIndexConstituents(2, "nifty50", threshold = strftime(as.Date(kBackTestStartDate) -  90))
+niftysymbols <- createIndexConstituents(2, "nifty50", threshold = strftime(as.Date(kBackTestStartDate) -  365))
 #niftysymbols <- createFNOConstituents(2, "contractsize", threshold = strftime(as.Date(kBackTestStartDate) -  90))
 
 niftysymbols<-niftysymbols[niftysymbols$startdate<=as.Date(kBackTestEndDate,tz=kTimeZone) & niftysymbols$enddate>=as.Date(kBackTestStartDate,tz=kTimeZone) ,]

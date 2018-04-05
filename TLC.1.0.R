@@ -52,11 +52,13 @@ longshortSignals<-function(s,realtime=FALSE,intraday=FALSE,type=NA_character_){
                         md$averagednswing<-na.locf(md$averagednswing,na.rm = FALSE)
                         md$averagednswing<-na.locf(md$averagednswing,fromLast = TRUE)
                 }else{
-                        avgupswingindices<-which(diff(t$swinglevel)>0)
+                        avgupswingindices<-which(diff(md$swinglevel)>0)
                         upswingvalues<- diff(md$swinglevel)[avgupswingindices]
-                        upswingvalues<-upswingvalues[-length(upswingvalues)]
+                        upswingvalues<-upswingvalues[-length(upswingvalues)] # remove last value
                         avgupswingindices<-avgupswingindices+1
-                        avgupswingindices<-avgupswingindices[-1]
+                        avgupswingindices<-avgupswingindices[-length(avgupswingindices)] # remove last index
+                        md$lastupswing<-0
+                        md$lastupswing[avgupswingindices]<-upswingvalues
                         avgupswing<-rollmean(upswingvalues,(kRollingSwingAverage-0))
                         avgupswingindices<-avgupswingindices[(kRollingSwingAverage-0):length(avgupswingindices)]
                         md$averageupswing<-NA_real_
@@ -69,7 +71,9 @@ longshortSignals<-function(s,realtime=FALSE,intraday=FALSE,type=NA_character_){
                         dnswingvalues<--1 * diff(md$swinglevel)[avgdnswingindices]
                         dnswingvalues<-dnswingvalues[-length(dnswingvalues)]
                         avgdnswingindices<-avgdnswingindices+1 # this moves the index to the row that has experienced the downswing
-                        avgdnswingindices<-avgdnswingindices[-1]
+                        avgdnswingindices<-avgdnswingindices[-length(avgdnswingindices)]
+                        md$lastdnswing<-0
+                        md$lastdnswing[avgdnswingindices]<-dnswingvalues
                         avgdnswing<-rollmean(dnswingvalues,(kRollingSwingAverage-0))
                         avgdnswingindices<-avgdnswingindices[(kRollingSwingAverage-0):length(avgdnswingindices)]
                         md$averagednswing<-NA_real_

@@ -141,6 +141,7 @@ longshortSignals<-function(s,realtime=FALSE,intraday=FALSE,type=NA_character_){
                 md$sl.level=sl.level
                 md$tp.level=tp.level
                 md=md[md$date>=kBackTestStartDate & md$date<=kBackTestEndDate,]
+                i=which(niftysymbols$symbol==s)[1]
                 md$eligible = ifelse(as.Date(md$date) >= niftysymbols[i, c("startdate")] & as.Date(md$date) <= niftysymbols[i, c("enddate")],1,0)
                 md$buy<-ifelse(md$eligible==1 & md$trend==1 & md$risk<0.5,1,0)
                 md$short<-ifelse(md$eligible==1  & md$trend==-1 & md$risk<0.5 ,1,0)

@@ -12,11 +12,15 @@ longshortSignals<-function(s,realtime=FALSE,type=NA_character_){
         print(paste(s,"...",sep=""))
         df=candleStickPattern(s,realtime=realtime)
         md<-df$marketdata
-        
         pattern<-df$pattern
-        pattern<-pattern[,c("pattern","date","confirmationdate","stoploss")]
-        pattern.complete=pattern[complete.cases(pattern),c("pattern","confirmationdate","stoploss")]
+        
+        pattern.complete=pattern[complete.cases(pattern),]
+        pattern.complete=pattern.complete[order(pattern.complete$confirmationdate,-pattern.complete$duration),]
+        pattern.complete=pattern.complete[!duplicated(pattern.complete$confirmationdate),]
+        pattern.complete<-pattern.complete[,c("pattern","confirmationdate","stoploss","duration")]
         names(pattern.complete)[1]="pattern.complete"
+        pattern.complete=unique(pattern.complete)
+
         pattern.incomplete<-pattern[!complete.cases(pattern),c("pattern","date")]
         pattern.incomplete=aggregate(pattern~date,data=pattern.incomplete,c)
         pattern.incomplete$pattern=sapply(pattern.incomplete$pattern,function(x) paste(unlist(x),collapse=","))
@@ -37,6 +41,8 @@ longshortSignals<-function(s,realtime=FALSE,type=NA_character_){
         md$hrsi<-RSI(md[,c("ahigh")],n=23)
         md$adx <-ADX(md[, c("ahigh", "alow", "asettle")])[, c("ADX")]
         md$stoploss=na.locf(md$stoploss,na.rm=FALSE)
+        md$daysinupswing <- BarsSince(md$updownbar <= 0)
+        md$daysindownswing <- BarsSince(md$updownbar >= 0)
         md=md[md$date<=kBackTestEndDate,]
         
         if(!is.na(md)[1]){
@@ -71,7 +77,7 @@ longshortSignals<-function(s,realtime=FALSE,type=NA_character_){
                 i=which(niftysymbols$symbol==s)[1]
                 md$eligible = ifelse(as.Date(md$date) >= niftysymbols[i, c("startdate")] & as.Date(md$date) <= niftysymbols[i, c("enddate")],1,0)
                 md$buy<-ifelse(md$eligible==1 & md$trend==-1 & grepl("BULLISH",md$pattern.complete) &  !grepl("BULLISH",md$pattern.suggested),1,0)
-                md$short<-ifelse(md$eligible==1  & md$trend==1 & grepl("BEARISH",md$pattern.complete) & !grepl("BEARISH",md$pattern.suggested) ,1,0)
+                md$short<-ifelse(md$eligible==1 & md$trend==1 & grepl("BEARISH",md$pattern.complete) & !grepl("BEARISH",md$pattern.suggested) ,1,0)
                 md$sell=0
                 md$cover=0
                 md$inlongtrade=ContinuingLong(md$symbol, md$buy,md$sell,md$short)
@@ -185,8 +191,8 @@ kUseSystemDate<-as.logical(static$UseSystemDate)
 kDataCutOffBefore<-static$DataCutOffBefore
 kBackTestStartDate<-static$BackTestStartDate
 kBackTestEndDate<-static$BackTestEndDate
-#kBackTestStartDate<-"2011-01-01"
-#kBackTestEndDate<-"2018-12-31"
+#kBackTestStartDate<-"2017-01-01"
+#kBackTestEndDate<-"2017-12-31"
 kFNODataFolder <- static$FNODataFolder
 kNiftyDataFolder <- static$CashDataFolder
 kTimeZone <- static$TimeZone

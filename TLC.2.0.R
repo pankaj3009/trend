@@ -18,10 +18,20 @@ longshortSignals<-function(s,realtime=FALSE,type=NA_character_){
         pattern.complete=pattern[complete.cases(pattern),c("pattern","confirmationdate","stoploss")]
         names(pattern.complete)[1]="pattern.complete"
         pattern.incomplete<-pattern[!complete.cases(pattern),c("pattern","date")]
+        pattern.incomplete=aggregate(pattern~date,data=pattern.incomplete,c)
+        pattern.incomplete$pattern=sapply(pattern.incomplete$pattern,function(x) paste(unlist(x),collapse=","))
         pattern.incomplete=pattern.incomplete[!duplicated(pattern.incomplete$date),]
-        names(pattern.incomplete)[1]="pattern.incomplete"
+        names(pattern.incomplete)[2]="pattern.incomplete"
         md<-merge(md,pattern.complete,by.x=c("date"),by.y=c("confirmationdate"),all.x = TRUE)
         md<-merge(md,pattern.incomplete,by.x=c("date"),by.y=c("date"),all.x = TRUE)
+        
+        pattern.suggested<-pattern[,c("pattern","date")]
+        pattern.suggested=aggregate(pattern~date,data=pattern.suggested,c)
+        pattern.suggested$pattern=sapply(pattern.suggested$pattern,function(x) paste(unlist(x),collapse=","))
+        pattern.suggested=pattern.suggested[!duplicated(pattern.incomplete$date),]
+        names(pattern.suggested)[2]="pattern.suggested"
+        md<-merge(md,pattern.suggested,by.x=c("date"),by.y=c("date"),all.x = TRUE)
+        
         md$srsi<-RSI(md[,c("asettle")],n=23)
         md$lrsi<-RSI(md[,c("alow")],n=23)
         md$hrsi<-RSI(md[,c("ahigh")],n=23)
@@ -82,8 +92,12 @@ longshortSignals<-function(s,realtime=FALSE,type=NA_character_){
                 md$cover=ifelse(md$coverbullishstop,1,md$cover)
                 
                 ### Stop 3. Reverse Candle
-                md$sell<-ifelse(md$inlongtrade & (grepl("BEARISH",md$pattern.complete)|md$trend>=0),1,md$sell)
-                md$cover<-ifelse(md$inshorttrade & (grepl("BULLISH",md$pattern.complete)|md$trend<=0),1,md$cover)
+                # #Original Start
+                # md$sell<-ifelse(md$inlongtrade & (grepl("BEARISH",md$pattern.complete)|md$trend>=0),1,md$sell)
+                # md$cover<-ifelse(md$inshorttrade & (grepl("BULLISH",md$pattern.complete)|md$trend<=0),1,md$cover)
+                # # ORiginal end
+                md$sell<-ifelse(md$inlongtrade & (grepl("BEARISH",md$pattern.complete)),1,md$sell)
+                md$cover<-ifelse(md$inshorttrade & (grepl("BULLISH",md$pattern.complete)),1,md$cover)
                 md$sell=ifelse(md$sell |md$short,1,0)
                 md$cover=ifelse(md$cover |md$buy,1,0)
                 
@@ -96,6 +110,10 @@ longshortSignals<-function(s,realtime=FALSE,type=NA_character_){
                 md$shortprice = md$asettle
                 md$coverprice = md$asettle
                 
+                # takeprofit
+                md$tp.level=0
+                md$tp.level=ifelse(md$buy==1,5*md$buyprice-4*md$stoploss,ifelse(md$short==1,5*md$shortprice-4*md$stoploss,NA_real_))
+                md$tp.level=na.locf(md$tp.level,na.rm = FALSE)
                 #mdsellprice=ifelse(md$trend>=0 & Ref(md$trend,-1)==-1,md$sl.level,md$sellprice)
                 #mdcoverprice=ifelse(md$trend<=0 & Ref(md$trend,-1)==1,md$sl.level,md$coverprice)
                 
@@ -109,6 +127,9 @@ longshortSignals<-function(s,realtime=FALSE,type=NA_character_){
                 md$shortcount<-with(md, ave(md$short, cumsum(md$inshorttrade == 0), FUN = cumsum))
                 #md$buy=md$buy>0 & md$buycount>1
                 #md$short=md$short>0 & md$shortcount>1
+                md$exclude=(md$buy==1 & (Ref(grepl("BULLISH",md$pattern.suggested),0)))|(md$short==1 & (Ref(grepl("BEARISH",md$pattern.suggested),0)))
+                md$buy=ifelse(md$exclude,0,md$buy)
+                md$short=ifelse(md$exclude,0,md$short)
                 md<-unique(md)
                 # print(paste("completed: ",s,sep=""))
         }
@@ -138,9 +159,9 @@ if(length(args)<=1 && length(newargs>1)){
 }
 redisClose()
 if(Sys.time()<bod){
-        args[1]=3
+        args[1]=1
 }else if(Sys.time()<eod){
-        args[1]=3
+        args[1]=2
 }else{
         args[1]=3
 }
@@ -166,8 +187,8 @@ kUseSystemDate<-as.logical(static$UseSystemDate)
 kDataCutOffBefore<-static$DataCutOffBefore
 kBackTestStartDate<-static$BackTestStartDate
 kBackTestEndDate<-static$BackTestEndDate
-#kBackTestStartDate<-"2017-01-01"
-#kBackTestEndDate<-"2017-12-31"
+#kBackTestStartDate<-"2011-01-01"
+#kBackTestEndDate<-"2018-12-31"
 kFNODataFolder <- static$FNODataFolder
 kNiftyDataFolder <- static$CashDataFolder
 kTimeZone <- static$TimeZone
@@ -295,7 +316,7 @@ signals$symbol<-ifelse(index.symbolchange>1 & signals$date>=symbolchange$date[in
 
 #### generate underlying trades ####
 #trades<-ProcessSignals(signals,signals$sl.level,signals$tp.level, maxbar=rep(kMaxBars,nrow(signals)),volatilesl = TRUE,volatiletp = TRUE,maxposition=kMaxPositions,scalein=kScaleIn,debug=TRUE)
-trades<-ProcessSignals(signals,rep(0,nrow(signals)),rep(0,nrow(signals)), maxbar=rep(kMaxBars,nrow(signals)),volatilesl = TRUE,volatiletp = TRUE,maxposition=kMaxPositions,scalein=kScaleIn,debug=FALSE)
+trades<-ProcessSignals(signals,rep(0,nrow(signals)),signals$tp.level, maxbar=rep(kMaxBars,nrow(signals)),volatilesl = TRUE,volatiletp = TRUE,maxposition=kMaxPositions,scalein=kScaleIn,debug=FALSE)
 trades.open.index=which(trades$exitreason=="Open")
 # update open position mtm price
 if(length(trades.open.index)>0){
@@ -334,8 +355,24 @@ if(FALSE){
         print(paste("Return:",sum(trades$abspnl)*100/(kTradeSize*kMaxPositions)*365/as.numeric((min(as.Date(kBackTestEndDate),Sys.Date())-as.Date(kBackTestStartDate)))))
         print(paste("sharpe:", sharpe, sep = ""))
         print(paste("Win Ratio:",sum(trades$abspnl>0)*100/nrow(trades)))
+        print(paste("Avg % Profit Per Trade:",sum(trades$abspnl)*100/nrow(trades)/kTradeSize))
         print(paste("Avg Holding Days:",sum(trades$bars)/nrow(trades)))
-        
+        print("************* Long Trades ****************")
+        longtrades=trades[trades$trade=="BUY",]
+        print(paste("# Long Trades:",nrow(longtrades)))
+        print(paste("Profit:",sum(longtrades$abspnl)))
+        print(paste("Return:",sum(longtrades$abspnl)*100/(kTradeSize*kMaxPositions)*365/as.numeric((min(as.Date(kBackTestEndDate),Sys.Date())-as.Date(kBackTestStartDate)))))
+        print(paste("Win Ratio:",sum(longtrades$abspnl>0)*100/nrow(longtrades)))
+        print(paste("Avg % Profit Per Trade:",sum(longtrades$abspnl)*100/nrow(longtrades)/kTradeSize))
+        print(paste("Avg Holding Days:",sum(longtrades$bars)/nrow(longtrades)))
+        print("************* Short Trades ****************")
+        shorttrades=trades[trades$trade=="SHORT",]
+        print(paste("# Short Trades:",nrow(shorttrades)))
+        print(paste("Profit:",sum(shorttrades$abspnl)))
+        print(paste("Return:",sum(shorttrades$abspnl)*100/(kTradeSize*kMaxPositions)*365/as.numeric((min(as.Date(kBackTestEndDate),Sys.Date())-as.Date(kBackTestStartDate)))))
+        print(paste("Win Ratio:",sum(shorttrades$abspnl>0)*100/nrow(shorttrades)))
+        print(paste("Avg % Profit Per Trade:",sum(shorttrades$abspnl)*100/nrow(shorttrades)/kTradeSize))
+        print(paste("Avg Holding Days:",sum(shorttrades$bars)/nrow(shorttrades)))
 }
 
 
@@ -378,8 +415,6 @@ if(TRUE){
                                 futureTrades$exittime[i]=novalue
                         }
                 }        
-                
-                
                 
                 futureTrades$entrybrokerage=ifelse(futureTrades$entryprice==0,0,ifelse(grepl("BUY",futureTrades$trade),kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*kValueBrokerage,kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*(kValueBrokerage+kSTTSell)))
                 futureTrades$exitbrokerage=ifelse(futureTrades$exitprice==0,0,ifelse(grepl("BUY",futureTrades$trade),kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*kValueBrokerage,kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*(kValueBrokerage+kSTTSell)))
@@ -426,8 +461,8 @@ if(TRUE){
                                 entrytime=which(as.Date(futureTrades$entrytime,tz=kTimeZone) == Sys.Date())
                                 entrysize = sum(futureTrades[entrytime, c("size")])
                         }
-                        if (length(which(as.Date(futureTrades$exittime,tz=kTimeZone) == Sys.Date() && futureTrades$exitreason!="Open")) >= 1) {
-                                exittime=which(as.Date(futureTrades$exittime,tz=kTimeZone) == Sys.Date())
+                        if (length(which(as.Date(futureTrades$exittime,tz=kTimeZone) == Sys.Date() & futureTrades$exitreason!="Open")) >= 1) {
+                                exittime=which(as.Date(futureTrades$exittime,tz=kTimeZone) == Sys.Date() &  futureTrades$exitreason!="Open")
                                 exitsize = sum(futureTrades[exittime, c("size")])
                         }
                         
@@ -437,14 +472,14 @@ if(TRUE){
                         if (exitsize > 0 & kWriteToRedis) {
                                 redisConnect()
                                 redisSelect(args[3])
-                                exitindices<-which(as.Date(futureTrades$exittime,tz=kTimeZone) == Sys.Date())
+                                exitindices<-which(as.Date(futureTrades$exittime,tz=kTimeZone) == Sys.Date() & futureTrades$exitreason!="Open")
                                 out <- futureTrades[exitindices,]
                                 for (o in 1:nrow(out)) {
                                         change = 0
                                         side = "UNDEFINED"
                                         # calculate starting positions by excluding futureTrades already considered in this & prior iterations. 
                                         # Effectively, the abs(startingposition) should keep reducing for duplicate symbols.
-                                        startingpositionexcluding.this=GetCurrentPosition(out[o, "symbol"], futureTrades[-exitindices[1:o],],futureTrades.till = Sys.Date()-1,position.on = Sys.Date()-1)
+                                        startingpositionexcluding.this=GetCurrentPosition(out[o, "symbol"], futureTrades[-exitindices[1:o],],trades.till = Sys.Date()-1,position.on = Sys.Date()-1)
                                         if(grepl("BUY",out[o,"trade"])){
                                                 change=-out[o,"size"]*out[o,"entry.splitadjust"]/out[o,"exit.splitadjust"]
                                                 side="SELL"
@@ -537,8 +572,14 @@ if(TRUE){
                                         signals.symbol<-signals.symbol[order(signals.symbol$date),]
                                         df<-signals.symbol[nrow(signals.symbol),]
                                         trade.sl<-df$stoploss
+                                        trade.tp<-df$tp.level
                                         if(length(trade.sl)>0 && (df$sltouched.sell==1||df$sltouched.cover==1)){
                                                 rredis::redisHSet(strategyTrades[ind,c("key")],"StopLoss",charToRaw(as.character(trade.sl)))
+                                        }else{
+                                                rredis::redisHSet(strategyTrades[ind,c("key")],"StopLoss",charToRaw(as.character(0)))
+                                        }
+                                        if(length(trade.tp)>0){
+                                                rredis::redisHSet(strategyTrades[ind,c("key")],"TakeProfit",charToRaw(as.character(trade.tp)))
                                         }else{
                                                 rredis::redisHSet(strategyTrades[ind,c("key")],"StopLoss",charToRaw(as.character(0)))
                                         }

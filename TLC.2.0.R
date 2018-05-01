@@ -70,8 +70,8 @@ longshortSignals<-function(s,realtime=FALSE,type=NA_character_){
                 md=md[md$date>=kBackTestStartDate & md$date<=kBackTestEndDate,]
                 i=which(niftysymbols$symbol==s)[1]
                 md$eligible = ifelse(as.Date(md$date) >= niftysymbols[i, c("startdate")] & as.Date(md$date) <= niftysymbols[i, c("enddate")],1,0)
-                md$buy<-ifelse(md$eligible==1 & md$trend==-1 & grepl("BULLISH",md$pattern.complete) &  !grepl("BULLISH",md$pattern.incomplete),1,0)
-                md$short<-ifelse(md$eligible==1  & md$trend==1 & grepl("BEARISH",md$pattern.complete) & !grepl("BEARISH",md$pattern.incomplete) ,1,0)
+                md$buy<-ifelse(md$eligible==1 & md$trend==-1 & grepl("BULLISH",md$pattern.complete) &  !grepl("BULLISH",md$pattern.suggested),1,0)
+                md$short<-ifelse(md$eligible==1  & md$trend==1 & grepl("BEARISH",md$pattern.complete) & !grepl("BEARISH",md$pattern.suggested) ,1,0)
                 md$sell=0
                 md$cover=0
                 md$inlongtrade=ContinuingLong(md$symbol, md$buy,md$sell,md$short)
@@ -125,11 +125,9 @@ longshortSignals<-function(s,realtime=FALSE,type=NA_character_){
                 md$inshorttrade=ContinuingShort(md$symbol,md$short,md$cover,md$buy)
                 md$buycount<-with(md, ave(md$buy, cumsum(md$inlongtrade == 0), FUN = cumsum))
                 md$shortcount<-with(md, ave(md$short, cumsum(md$inshorttrade == 0), FUN = cumsum))
-                #md$buy=md$buy>0 & md$buycount>1
-                #md$short=md$short>0 & md$shortcount>1
-                md$exclude=(md$buy==1 & (Ref(grepl("BULLISH",md$pattern.suggested),0)))|(md$short==1 & (Ref(grepl("BEARISH",md$pattern.suggested),0)))
-                md$buy=ifelse(md$exclude,0,md$buy)
-                md$short=ifelse(md$exclude,0,md$short)
+                # md$exclude=(md$buy==1 & (Ref(grepl("BULLISH",md$pattern.suggested),0)))|(md$short==1 & (Ref(grepl("BEARISH",md$pattern.suggested),0)))
+                # md$buy=ifelse(md$exclude,0,md$buy)
+                # md$short=ifelse(md$exclude,0,md$short)
                 md<-unique(md)
                 # print(paste("completed: ",s,sep=""))
         }

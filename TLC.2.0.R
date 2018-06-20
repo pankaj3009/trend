@@ -1,3 +1,4 @@
+timer.start=Sys.time()
 library(RTrade)
 library(zoo)
 library(rredis)
@@ -181,7 +182,7 @@ if(args[1]==4){
         }
 }
 kMaxPositions=5
-kScaleIn=FALSE
+kScaleIn=1
 kMaxBars=1000
 kDelay=0
 reverse=FALSE
@@ -259,7 +260,7 @@ niftysymbols <- createIndexConstituents(2, "nifty50", threshold = strftime(as.Da
 
 niftysymbols<-niftysymbols[niftysymbols$startdate<=as.Date(kBackTestEndDate,tz=kTimeZone) & niftysymbols$enddate>=as.Date(kBackTestStartDate,tz=kTimeZone) ,]
 for(i in 1:nrow(niftysymbols)){
-        niftysymbols$symbol.latest[i]<-getMostRecentSymbol(niftysymbols$symbol[i],symbolchange$key,symbolchange$newsymbol)
+        niftysymbols$symbol.latest[i]<-getMostRecentSymbol(niftysymbols$symbol[i])
 }
 
 folots <- createFNOSize(2, "contractsize", threshold = strftime(as.Date(kBackTestStartDate) -  90))
@@ -603,3 +604,6 @@ if(TRUE){
                 #write.csv(a,file=filename)  
         }
 }
+timer.end=Sys.time()
+runtime=timer.end-timer.start
+print(runtime)

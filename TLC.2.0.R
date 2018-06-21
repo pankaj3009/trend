@@ -21,7 +21,7 @@ longshortSignals<-function(s,realtime=FALSE,type=NA_character_){
         pattern.complete<-pattern.complete[,c("pattern","confirmationdate","stoploss","duration")]
         names(pattern.complete)[1]="pattern.complete"
         pattern.complete=unique(pattern.complete)
-
+        
         pattern.incomplete<-pattern[!complete.cases(pattern),c("pattern","date")]
         pattern.incomplete=aggregate(pattern~date,data=pattern.incomplete,c)
         pattern.incomplete$pattern=sapply(pattern.incomplete$pattern,function(x) paste(unlist(x),collapse=","))
@@ -346,7 +346,7 @@ if(FALSE){
         trades$abspnl=ifelse(trades$trade=="BUY",trades$size*(trades$exitprice-trades$entryprice),-trades$size*(trades$exitprice-trades$entryprice))-trades$entrybrokerage-trades$exitbrokerage
         trades$abspnl=ifelse(trades$exitprice==0,0,trades$abspnl)
         
-        trades$exittime=dplyr::if_else(trades$exitreason=="Open",as.POSIXct(NA_character_),trades$exittime)
+        #trades$exittime=dplyr::if_else(trades$exitreason=="Open",as.POSIXct(NA_character_),trades$exittime)
         cumpnl<-CalculateDailyPNL(trades,pnl,kNiftyDataFolder,trades$brokerage,deriv=FALSE)
         DailyPNL <- (cumpnl$realized + cumpnl$unrealized-cumpnl$brokerage) - Ref(cumpnl$realized + cumpnl$unrealized-cumpnl$brokerage, -1)
         DailyPNL <- ifelse(is.na(DailyPNL), 0, DailyPNL)
@@ -407,7 +407,6 @@ if(TRUE){
                                 return(a$contractsize)
                         } else
                                 return(0)
-                        
                 }
                 
                 futureTrades$entrysize=NULL
@@ -419,7 +418,7 @@ if(TRUE){
                         if(as.numeric(futureTrades$exittime[i])==0){
                                 futureTrades$exittime[i]=novalue
                         }
-                }        
+                }
                 
                 futureTrades$entrybrokerage=ifelse(futureTrades$entryprice==0,0,ifelse(grepl("BUY",futureTrades$trade),kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*kValueBrokerage,kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*(kValueBrokerage+kSTTSell)))
                 futureTrades$exitbrokerage=ifelse(futureTrades$exitprice==0,0,ifelse(grepl("BUY",futureTrades$trade),kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*kValueBrokerage,kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*(kValueBrokerage+kSTTSell)))
@@ -456,153 +455,36 @@ if(TRUE){
                 futureTrades$netpercentprofit <- futureTrades$percentprofit - futureTrades$brokerage
                 futureTrades$pnl<-ifelse(futureTrades$exitprice==0|futureTrades$entryprice==0,0,futureTrades$entryprice*futureTrades$netpercentprofit*futureTrades$size)
                 
-                
-                #### Write to Redis ####
-                if(args[1]==2 && kWriteToRedis){
-                        levellog(logger, "INFO", paste("Starting scan for writing to Redis for ",args[2], sep = ""))
-                        entrysize = 0
-                        exitsize = 0
-                        if (length(which(as.Date(futureTrades$entrytime,tz=kTimeZone) == Sys.Date())) >= 1) {
-                                entrytime=which(as.Date(futureTrades$entrytime,tz=kTimeZone) == Sys.Date())
-                                entrysize = sum(futureTrades[entrytime, c("size")])
-                        }
-                        if (length(which(as.Date(futureTrades$exittime,tz=kTimeZone) == Sys.Date() & futureTrades$exitreason!="Open")) >= 1) {
-                                exittime=which(as.Date(futureTrades$exittime,tz=kTimeZone) == Sys.Date() &  futureTrades$exitreason!="Open")
-                                exitsize = sum(futureTrades[exittime, c("size")])
-                        }
-                        
-                        #Exit First, then enter
-                        #Write Exit to Redis
-                        
-                        if (exitsize > 0 & kWriteToRedis) {
-                                redisConnect()
-                                redisSelect(args[3])
-                                exitindices<-which(as.Date(futureTrades$exittime,tz=kTimeZone) == Sys.Date() & futureTrades$exitreason!="Open")
-                                out <- futureTrades[exitindices,]
-                                for (o in 1:nrow(out)) {
-                                        change = 0
-                                        side = "UNDEFINED"
-                                        # calculate starting positions by excluding futureTrades already considered in this & prior iterations. 
-                                        # Effectively, the abs(startingposition) should keep reducing for duplicate symbols.
-                                        startingpositionexcluding.this=GetCurrentPosition(out[o, "symbol"], futureTrades[-exitindices[1:o],],trades.till = Sys.Date()-1,position.on = Sys.Date()-1)
-                                        if(grepl("BUY",out[o,"trade"])){
-                                                change=-out[o,"size"]*out[o,"entry.splitadjust"]/out[o,"exit.splitadjust"]
-                                                side="SELL"
-                                        }else{
-                                                change=out[o,"size"]*out[o,"entry.splitadjust"]/out[o,"exit.splitadjust"]
-                                                side="COVER"
-                                        }
-                                        startingposition = startingpositionexcluding.this-change
-                                        
-                                        #                        startingposition = endingposition - change
-                                        order=data.frame(
-                                                ParentDisplayName=out[o,"symbol"],
-                                                ChildDisplayName=out[o,"symbol"],
-                                                OrderSide=side,
-                                                OrderReason="REGULAREXIT",
-                                                OrderType="CUSTOMREL",
-                                                OrderStage="INIT",
-                                                StrategyOrderSize=out[o,"size"]*out[o,"entry.splitadjust"]/out[o,"exit.splitadjust"],
-                                                StrategyStartingPosition=as.character(abs(startingposition)),
-                                                DisplaySize=out[o,"size"],
-                                                TriggerPrice="0",
-                                                Scale="TRUE",
-                                                OrderReference=args[2],
-                                                stringsAsFactors = FALSE
-                                        )
-                                        redisString=toJSON(order,dataframe = c("columns"),auto_unbox = TRUE)
-                                        redisString<-gsub("\\[","",redisString)
-                                        redisString<-gsub("\\]","",redisString)
-                                        redisRPush(paste("trades", args[2], sep = ":"),charToRaw(redisString))
-                                        levellog(logger, "INFO", paste(args[2], redisString, sep = ":"))
-                                }
-                                redisClose()
-                        }
-                        
-                        if (entrysize > 0 & kWriteToRedis) {
-                                redisConnect()
-                                redisSelect(args[3])
-                                out <- futureTrades[which(as.Date(futureTrades$entrytime,tz=kTimeZone) == Sys.Date()),]
-                                for (o in 1:nrow(out)) {
-                                        endingposition=GetCurrentPosition(out[o, "symbol"], futureTrades)
-                                        change = 0
-                                        side = "UNDEFINED"
-                                        if(grepl("BUY",out[o,"trade"])){
-                                                change=out[o,"size"]
-                                                side="BUY"
-                                        }else{
-                                                change=-out[o,"size"]
-                                                side="SHORT"
-                                        }
-                                        startingposition = endingposition - change
-                                        order=data.frame(
-                                                ParentDisplayName=out[o,"symbol"],
-                                                ChildDisplayName=out[o,"symbol"],
-                                                OrderSide=side,
-                                                OrderReason="REGULARENTRY",
-                                                OrderType="CUSTOMREL",
-                                                OrderStage="INIT",
-                                                StrategyOrderSize=out[o,"size"],
-                                                StrategyStartingPosition=as.character(abs(startingposition)),
-                                                DisplaySize=out[o,"size"],
-                                                TriggerPrice="0",
-                                                Scale="TRUE",
-                                                OrderReference=args[2],
-                                                stringsAsFactors = FALSE
-                                        )
-                                        redisString=toJSON(order,dataframe = c("columns"),auto_unbox = TRUE)
-                                        redisString<-gsub("\\[","",redisString)
-                                        redisString<-gsub("\\]","",redisString)
-                                        redisRPush(paste("trades", args[2], sep = ":"),charToRaw(redisString))
-                                        levellog(logger, "INFO", paste(args[2], redisString, sep = ":"))
-                                }
-                                redisClose()
-                        }
-                        saveRDS(futureTrades,paste("futureTrades","_",strftime(Sys.time(),"%Y%m%d %H:%M:%S"),".rds",sep=""))
-                        
-                }
-                
-                if(args[1]==1 & kWriteToRedis){
-                        # write sl levels on BOD
-                        # update strategy
-                        levellog(logger, "INFO", paste("Starting scan for sl update for ",args[2], sep = ""))
-                        strategyTrades<-createPNLSummary(args[3],args[2],kBackTestStartDate,kBackTestEndDate,mdpath=kFNODataFolder,deriv=TRUE)
-                        opentrades.index<-which(is.na(strategyTrades$exittime))
-                        if(length(opentrades.index)>0){
-                                opentrades.index<-sort(opentrades.index)
-                                for(i in 1:length(opentrades.index)){
-                                        ind<-opentrades.index[i]
-                                        symbol<-strsplit(strategyTrades[ind,c("symbol")],"_")[[1]][1]
-                                        signals.symbol<-signals[signals$symbol==symbol,]
-                                        signals.symbol<-signals.symbol[order(signals.symbol$date),]
-                                        df<-signals.symbol[nrow(signals.symbol),]
-                                        trade.sl<-df$stoploss
-                                        trade.tp<-df$tp.level
-                                        if(length(trade.sl)>0 && (df$sltouched.sell==1||df$sltouched.cover==1)){
-                                                rredis::redisHSet(strategyTrades[ind,c("key")],"StopLoss",charToRaw(as.character(trade.sl)))
-                                        }else{
-                                                rredis::redisHSet(strategyTrades[ind,c("key")],"StopLoss",charToRaw(as.character(0)))
-                                        }
-                                        if(length(trade.tp)>0){
-                                                rredis::redisHSet(strategyTrades[ind,c("key")],"TakeProfit",charToRaw(as.character(trade.tp)))
-                                        }else{
-                                                rredis::redisHSet(strategyTrades[ind,c("key")],"StopLoss",charToRaw(as.character(0)))
-                                        }
-                                }
-                        }
-                }
-                
-                #### Print Open Positions ####
-                #futureTrades <- GenerateTrades(a)
-                print(paste("Profit:",sum(futureTrades$pnl)))
-                print(paste("Win Ratio:",sum(futureTrades$netpercentprofit>0)/nrow(futureTrades)))
-                print(paste("# Trades:",nrow(futureTrades)))
-                print(futureTrades[futureTrades$exitreason=="Open",])
-                filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"trades.csv",sep="_")
-                #write.csv(trades,file=filename)
-                filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"signals.csv",sep="_")
-                #write.csv(a,file=filename)  
         }
+        
+        #### Write to Redis ####
+        if(args[1]==2 && kWriteToRedis & nrow(futureTrades)>0){
+                levellog(logger, "INFO", paste("Starting scan for writing to Redis for ",args[2], sep = ""))
+                saveRDS(futureTrades,paste("futureTrades","_",strftime(Sys.time(),"%Y%m%d %H:%M:%S"),".rds",sep=""))
+                # referencetime=as.POSIXlt(Sys.time(),tz=kTimeZone)
+                # referencetime$hour=0
+                # referencetime$min=0
+                # referencetime$sec=0
+                # referencetime=as.POSIXct(referencetime)
+                referencetime=as.POSIXct(today,tz=kTimeZone)
+                order=data.frame( OrderType="CUSTOMREL",
+                                  OrderStage="INIT",
+                                  TriggerPrice="0",
+                                  Scale="FALSE",
+                                  OrderReference=args[2],
+                                  stringsAsFactors = FALSE)
+                placeRedisOrder(futureTrades,referencetime,order,"2")
+        }
+        
+        #### Print Open Positions ####
+        print(paste("Profit:",sum(futureTrades$pnl)))
+        print(paste("Win Ratio:",sum(futureTrades$netpercentprofit>0)/nrow(futureTrades)))
+        print(paste("# Trades:",nrow(futureTrades)))
+        print(futureTrades[futureTrades$exitreason=="Open",])
+        filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"trades.csv",sep="_")
+        #write.csv(trades,file=filename)
+        filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"signals.csv",sep="_")
+        #write.csv(a,file=filename)  
 }
 timer.end=Sys.time()
 runtime=timer.end-timer.start

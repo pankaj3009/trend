@@ -1,3 +1,5 @@
+# Trend, LargeCap, CandleSticks
+
 timer.start=Sys.time()
 library(RTrade)
 library(zoo)
@@ -471,9 +473,9 @@ if(TRUE){
                                   OrderStage="INIT",
                                   TriggerPrice="0",
                                   Scale="FALSE",
-                                  OrderReference=args[2],
+                                  OrderReference=tolower(args[2]),
                                   stringsAsFactors = FALSE)
-                placeRedisOrder(futureTrades,referencetime,order,"2")
+                placeRedisOrder(futureTrades,referencetime,order,args[3])
         }
         
         #### Print Open Positions ####

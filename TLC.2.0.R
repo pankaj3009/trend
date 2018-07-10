@@ -337,7 +337,9 @@ if(length(trades.open.index)>0){
 
 ### metric reporting ####
 if(FALSE){
-        pnl<-data.frame(bizdays=as.Date(unique(signals$date),tz=kTimeZone),realized=0,unrealized=0,brokerage=0)
+        bizdays=unique(signals$date)
+        bizdays=bizdays[bizdays>=as.POSIXct(kBackTestStartDate,tz=kTimeZone) & bizdays<=as.POSIXct(kBackTestEndDate,tz=kTimeZone)]
+        pnl<-data.frame(bizdays,realized=0,unrealized=0,brokerage=0)
         trades$size=kTradeSize/trades$entryprice
         trades$entrybrokerage=ifelse(trades$entryprice==0,0,ifelse(grepl("BUY",trades$trade),kPerContractBrokerage+trades$entryprice*trades$size*kValueBrokerage,kPerContractBrokerage+trades$entryprice*trades$size*(kValueBrokerage+kSTTSell)))
         trades$exitbrokerage=ifelse(trades$exitprice==0,0,ifelse(grepl("BUY",trades$trade),kPerContractBrokerage+trades$exitprice*trades$size*kValueBrokerage,kPerContractBrokerage+trades$exitprice*trades$size*(kValueBrokerage+kSTTSell)))
@@ -347,20 +349,28 @@ if(FALSE){
         trades$netpercentprofit <- trades$percentprofit - trades$brokerage/(trades$entryprice+trades$exitprice)/2
         trades$abspnl=ifelse(trades$trade=="BUY",trades$size*(trades$exitprice-trades$entryprice),-trades$size*(trades$exitprice-trades$entryprice))-trades$entrybrokerage-trades$exitbrokerage
         trades$abspnl=ifelse(trades$exitprice==0,0,trades$abspnl)
-        
-        #trades$exittime=dplyr::if_else(trades$exitreason=="Open",as.POSIXct(NA_character_),trades$exittime)
         cumpnl<-CalculateDailyPNL(trades,pnl,kNiftyDataFolder,trades$brokerage,deriv=FALSE)
-        DailyPNL <- (cumpnl$realized + cumpnl$unrealized-cumpnl$brokerage) - Ref(cumpnl$realized + cumpnl$unrealized-cumpnl$brokerage, -1)
-        DailyPNL <- ifelse(is.na(DailyPNL), 0, DailyPNL)
-        DailyReturn <- DailyPNL/(kMaxPositions*kTradeSize)
-        df <- data.frame(time = as.Date(unique(signals$date),tz=kTimeZone), return = DailyReturn)
-        df <- read.zoo(df)
-        sharpe <-  SharpeRatio((df[df != 0][, 1, drop = FALSE]), Rf = .07 / 365, FUN = "StdDev") * sqrt(252)
+        cumpnl$idlecash=kMaxContracts*kTradeSize-cumpnl$cashdeployed
+        cumpnl$daysdeployed=as.numeric(c(diff.POSIXt(cumpnl$bizdays),0))
+        cumpnl$investmentreturn=ifelse(cumpnl$idlecash>0,cumpnl$idlecash*cumpnl$daysdeployed*0.06/365,-cumpnl$idlecash*cumpnl$daysdeployed*0.2/365)
+        
+        # calculate sharpe
+        CumPNL <-  cumpnl$realized + cumpnl$unrealized - cumpnl$brokerage + cumpnl$investmentreturn
+        DailyPNLWorking <-  CumPNL - Ref(CumPNL, -1)
+        DailyPNLWorking <-  ifelse(is.na(DailyPNLWorking),0,DailyPNLWorking)
+        DailyReturnWorking <-  ifelse(cumpnl$longnpv +cumpnl$shortnpv== 0, 0,DailyPNLWorking / (cumpnl$longnpv+cumpnl$shortnpv))
+        sharpe <- sharpe(DailyReturnWorking)
+        
+        # calculate IRR
+        cumpnl$cashflow[nrow(cumpnl)]=cumpnl$cashflow[nrow(cumpnl)]+(cumpnl$longnpv+cumpnl$shortnpv)[nrow(cumpnl)]
+        xirr=xirr(cumpnl$cashflow+cumpnl$investmentreturn,cumpnl$bizdays,trace = TRUE)
+        
         print(paste("# Trades:",nrow(trades)))
-        print(paste("Profit 1:",sum(DailyPNL)))
+        print(paste("Profit 1:",sum(DailyPNLWorking)))
         print(paste("Profit 2:",sum(trades$abspnl)))
         print(paste("Return:",sum(trades$abspnl)*100/(kTradeSize*kMaxPositions)*365/as.numeric((min(as.Date(kBackTestEndDate),Sys.Date())-as.Date(kBackTestStartDate)))))
-        print(paste("sharpe:", sharpe, sep = ""))
+        print(paste("sharpe:", specify_decimal(sharpe,2), sep = ""))
+        print(paste("xirr:", specify_decimal(xirr,2),sep=""))
         print(paste("Win Ratio:",sum(trades$abspnl>0)*100/nrow(trades)))
         print(paste("Avg % Profit Per Trade:",sum(trades$abspnl)*100/nrow(trades)/kTradeSize))
         print(paste("Avg Holding Days:",sum(trades$bars)/nrow(trades)))
@@ -484,9 +494,8 @@ if(TRUE){
         print(paste("# Trades:",nrow(futureTrades)))
         print(futureTrades[futureTrades$exitreason=="Open",])
         filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"trades.csv",sep="_")
-        #write.csv(trades,file=filename)
         filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"signals.csv",sep="_")
-        #write.csv(a,file=filename)  
+
 }
 timer.end=Sys.time()
 runtime=timer.end-timer.start

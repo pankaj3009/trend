@@ -10,8 +10,76 @@ library(TTR)
 library(PerformanceAnalytics)
 options(scipen=999)
 
-#### functions ####
-longshortSignals<-function(s,realtime=FALSE,type=NA_character_){
+#### PARAMETERS ####
+args.commandline=commandArgs(trailingOnly=TRUE)
+if(length(args.commandline)>0){
+        args<-args.commandline
+}
+
+# args[1] is a flag 1 => Run before bod, update sl levels in redis, 2=> Generate Signals in Production 3=> Backtest 
+redisConnect()
+redisSelect(1)
+
+if(length(args)>1){
+        static<-redisHGetAll(toupper(args[2]))
+}else{
+        static<-redisHGetAll("TREND-LC")
+}
+
+redisClose()
+newargs<-unlist(strsplit(static$args,","))
+if(length(args)<=1 && length(newargs>1)){
+        args<-newargs
+}
+
+today=strftime(Sys.Date(),tz=kTimeZone,format="%Y-%m-%d")
+bod<-paste(today, "09:08:00 IST",sep=" ")
+eod<-paste(today, "15:30:00 IST",sep=" ")
+
+if(Sys.time()<bod){
+        args[1]=1
+}else if(Sys.time()<eod){
+        args[1]=2
+}else{
+        args[1]=3
+}
+
+kMaxPositions=as.numeric(static$MaxPositions)
+kScaleIn=as.numeric(static$ScaleIn)
+kMaxBars=as.numeric(static$MaxBars)
+kReverse=as.logical(static$Reverse)
+kWriteToRedis <- as.logical(static$WriteToRedis)
+kBackTestStartDate<-static$BackTestStartDate
+kBackTestEndDate<-static$BackTestEndDate
+#kBackTestStartDate<-"2017-01-01"
+#kBackTestEndDate<-"2017-12-31"
+kTimeZone <- static$TimeZone
+kValueBrokerage<-as.numeric(static$SingleLegBrokerageAsPercentOfValue)/100
+kPerContractBrokerage=as.numeric(static$SingleLegBrokerageAsValuePerContract)
+kSTTSell=as.numeric(static$SingleLegSTTSell)/100
+kMaxContracts=as.numeric(static$MaxContracts)
+kUnderlyingStrategy=as.character(static$UnderlyingStrategy)
+kHomeDirectory=static$HomeDirectory
+kLogFile=static$LogFile
+if(!is.null(kHomeDirectory)){
+        setwd(kHomeDirectory)
+}
+strategyname = args[2]
+redisDB = args[3]
+kTradeSize=100000
+kBackTest=as.logical(static$BackTest)
+
+logger <- create.logger()
+logfile(logger) <- kLogFile
+level(logger) <- 'INFO'
+
+realtime=TRUE
+today = strftime(Sys.Date(), tz = kTimeZone, format = "%Y-%m-%d")
+holidays=readRDS(paste(datafolder,"static/holidays.rds",sep=""))
+RQuantLib::addHolidays("India",holidays)
+
+#### FUNCTIONS ####
+longshortSignals<-function(s,realtime=FALSE){
         print(paste(s,"...",sep=""))
         df=candleStickPattern(s,realtime=realtime)
         md<-df$marketdata
@@ -142,87 +210,7 @@ longshortSignals<-function(s,realtime=FALSE,type=NA_character_){
         }
         return(md)
 }
-#### Parameters ####
-args.commandline=commandArgs(trailingOnly=TRUE)
-if(length(args.commandline)>0){
-        args<-args.commandline
-}
-# args<-c("2","trend-lc-01","4")
-# args[1] is a flag 1 => Run before bod, update sl levels in redis, 2=> Generate Signals in Production 3=> Backtest 
-redisConnect()
-redisSelect(1)
-today=strftime(Sys.Date(),tz=kTimeZone,format="%Y-%m-%d")
-bod<-paste(today, "09:08:00 IST",sep=" ")
-eod<-paste(today, "15:30:00 IST",sep=" ")
-if(length(args)>1){
-        static<-redisHGetAll(toupper(args[2]))
-}else{
-        static<-redisHGetAll("TREND-LC-01")
-}
-
-newargs<-unlist(strsplit(static$args,","))
-if(length(args)<=1 && length(newargs>1)){
-        args<-newargs
-}
-redisClose()
-if(Sys.time()<bod){
-        args[1]=1
-}else if(Sys.time()<eod){
-        args[1]=2
-}else{
-        args[1]=3
-}
-
-md.cutoff<-Sys.time()
-if(args[1]==4){
-        signals.yesterday<-readRDS("signals.rds")
-        trades.yesterday<-readRDS("trades.rds")
-        opentrades<-trades.yesterday[trades.yesterday$exitreason=="",]
-        opentrades<-opentrades[order(opentrades$entrytime),]
-        if(nrow(opentrades>0)){
-                md.cutoff<-opentrades$entrytime[1]
-        }
-}
-kMaxPositions=5
-kScaleIn=1
-kMaxBars=1000
-kDelay=0
-reverse=FALSE
-kWriteToRedis <- as.logical(static$WriteToRedis)
-kGetMarketData<-as.logical(static$GetMarketData)
-kUseSystemDate<-as.logical(static$UseSystemDate)
-kDataCutOffBefore<-static$DataCutOffBefore
-kBackTestStartDate<-static$BackTestStartDate
-kBackTestEndDate<-static$BackTestEndDate
-#kBackTestStartDate<-"2017-01-01"
-#kBackTestEndDate<-"2017-12-31"
-kFNODataFolder <- static$FNODataFolder
-kNiftyDataFolder <- static$CashDataFolder
-kTimeZone <- static$TimeZone
-kValueBrokerage<-as.numeric(static$SingleLegBrokerageAsPercentOfValue)/100
-kPerContractBrokerage=as.numeric(static$SingleLegBrokerageAsValuePerContract)
-kSTTSell=as.numeric(static$SingleLegSTTSell)/100
-kMaxContracts=as.numeric(static$MaxContracts)
-kRollingSwingAverage=as.numeric(static$RollingSwingAverage)
-kHomeDirectory=static$HomeDirectory
-kLogFile=static$LogFile
-setwd(kHomeDirectory)
-strategyname = args[2]
-redisDB = args[3]
-
-### parameters for metrics
-kTradeSize=100000
-
-logger <- create.logger()
-logfile(logger) <- kLogFile
-level(logger) <- 'INFO'
-
-realtime=TRUE
-today=strftime(Sys.Date(),tz=kTimeZone,format="%Y-%m-%d")
-
-
-#### Script ####
-#update splits
+#### GENERATE SYMBOLS ####
 redisConnect()
 redisSelect(2)
 a<-unlist(redisSMembers("splits")) # get values from redis in a vector
@@ -264,22 +252,18 @@ niftysymbols<-niftysymbols[niftysymbols$startdate<=as.Date(kBackTestEndDate,tz=k
 for(i in 1:nrow(niftysymbols)){
         niftysymbols$symbol.latest[i]<-getMostRecentSymbol(niftysymbols$symbol[i])
 }
+niftysymbols$symbol=paste(niftysymbols$symbol,"_STK___",sep="")
 
 folots <- createFNOSize(2, "contractsize", threshold = strftime(as.Date(kBackTestStartDate) -  90))
 symbols <- niftysymbols$symbol
-options(scipen = 999)
-today = strftime(Sys.Date(), tz = kTimeZone, format = "%Y-%m-%d")
+
+#### GENERATE SIGNALS ####
 md<-vector("list",length(symbols))
 out <- data.frame()
 signals<-data.frame()
 allmd <- list()
-
-#symbols<-c("ZEEL")
-
-signals<-data.frame()
-
 for(i in 1:length(symbols)){
-        df=longshortSignals(symbols[i],realtime,"STK")
+        df=longshortSignals(symbols[i],realtime)
         df$symbol<-niftysymbols$symbol[grepl(paste("^",symbols[i],"$",sep=""),niftysymbols$symbol)][1]
         if(nrow(signals)==0){
                 signals<-df
@@ -288,17 +272,11 @@ for(i in 1:length(symbols)){
         }
         
 }
-# nsenifty<-loadSymbol("NSENIFTY",realtime,"IND")
-# trend<-Trend(nsenifty$date,nsenifty$high,nsenifty$low,nsenifty$settle)
-# nsenifty$trendindex<-trend$trend
-# signals<-merge(signals,nsenifty[,c("date","trendindex")],by=c("date"))
-# signals$buy<-ifelse(Ref(signals$buy,-kDelay)==1 & signals$inlongtrade==1 & signals$trendindex<=0,1,0)
-# signals$short<-ifelse(Ref(signals$short,-kDelay)==1 & signals$inshorttrade==1 & signals$trendindex>=0,1,0)
 signals$aclose <- signals$asettle
 dates <- unique(signals[order(signals$date), c("date")])
 signals<-signals[order(signals$date,signals$symbol),]
 
-if(reverse){
+if(kReverse){
         origbuy=signals$buy
         origsell=signals$sell
         origshort=signals$short
@@ -310,19 +288,16 @@ if(reverse){
         signals$tp.level=ifelse(signals$buy>0,signals$buyprice+signals$tp,ifelse(signals$short>0,signals$shortprice+signals$tp,0))
         signals$sl.level=ifelse(signals$buy>0,signals$buyprice-signals$sl,ifelse(signals$short>0,signals$shortprice+signals$sl,0))
 }
-
-if(args[1]==2){
-        saveRDS(signals,paste("signals","_",strftime(Sys.time(),"%Y%m%d %H:%M:%S"),".rds",sep=""))
-}
-
-#### symbol might have changed. update to changed symbol ####
+# symbol might have changed. update to changed symbol #
 x<-sapply(signals$symbol,grep,symbolchange$key)
 potentialnames<-names(x)
 index.symbolchange<-match(signals$symbol,symbolchange$key,nomatch = 1)
 signals$symbol<-ifelse(index.symbolchange>1 & signals$date>=symbolchange$date[index.symbolchange],potentialnames,signals$symbol)
+if(!kBackTest){
+        saveRDS(signals,paste("signals","_",strftime(Sys.time(),,format="%Y-%m-%d %H-%M-%S"),".rds",sep=""))
+}
 
-#### generate underlying trades ####
-#trades<-ProcessSignals(signals,signals$sl.level,signals$tp.level, maxbar=rep(kMaxBars,nrow(signals)),volatilesl = TRUE,volatiletp = TRUE,maxposition=kMaxPositions,scalein=kScaleIn,debug=TRUE)
+#### GENERATE TRADES ####
 trades<-ProcessSignals(signals,rep(0,nrow(signals)),signals$tp.level, maxbar=rep(kMaxBars,nrow(signals)),volatilesl = TRUE,volatiletp = TRUE,maxposition=kMaxPositions,scalein=kScaleIn,debug=FALSE)
 trades.open.index=which(trades$exitreason=="Open")
 # update open position mtm price
@@ -331,12 +306,149 @@ if(length(trades.open.index)>0){
                 symbol=trades$symbol[trades.open.index[i]]
                 md=loadSymbol(symbol,realtime = realtime)
                 md=md[which(as.Date(md$date,tz=kTimeZone)<=min(as.Date(kBackTestEndDate),Sys.Date())),]
-                trades$exitprice[trades.open.index[i]]=tail(md$asettle,1)
+                trades$exitprice[trades.open.index[i]]=tail(md$settle/md$splitadjust,1)
         }
 }
 
-### metric reporting ####
-if(FALSE){
+#### MAP TO DERIVATIES ####
+if(nrow(trades)>0){
+        trades$entrymonth <- as.Date(sapply(trades$entrytime, getExpiryDate), tz = kTimeZone)
+        nextexpiry <- as.Date(sapply(as.Date(trades$entrymonth + 20, tz = kTimeZone), getExpiryDate), tz = kTimeZone)
+        trades$entrycontractexpiry <- as.Date(ifelse(businessDaysBetween("India",as.Date(trades$entrytime, tz = kTimeZone),trades$entrymonth) < 1,nextexpiry,trades$entrymonth),tz = kTimeZone)
+        trades$exitmonth <- as.Date(sapply(trades$exittime, getExpiryDate), tz = kTimeZone)
+        nextexpiry <- as.Date(sapply(as.Date(trades$exitmonth + 20, tz = kTimeZone), getExpiryDate), tz = kTimeZone)
+        trades$exitcontractexpiry <- as.Date(ifelse(businessDaysBetween("India",as.Date(trades$exittime, tz = kTimeZone),trades$exitmonth) < 1,nextexpiry,trades$exitmonth),tz = kTimeZone)
+        trades<-getStrikeByClosestSettlePrice(trades,kTimeZone)
+        futureTrades<-MapToFutureTrades(trades,rollover=TRUE)
+}
+
+# update size and calculate pnl #
+if(nrow(trades)>0 && nrow(futureTrades)>0){
+        futureTrades <- futureTrades[order(futureTrades$entrytime), ]
+        futureTrades$cashsymbol<-paste(sapply(strsplit(futureTrades$symbol,"_"),"[",1),"_STK___",sep="")
+        getcontractsize <- function (x, size) {
+                a <- size[size$startdate <= as.Date(x) & size$enddate >= as.Date(x), ]
+                if (nrow(a) > 0) {
+                        a <- head(a, 1)
+                }
+                if (nrow(a) > 0) {
+                        return(a$contractsize)
+                } else
+                        return(0)
+        }
+        
+        futureTrades$entrysize=NULL
+        novalue=strptime(NA_character_,"%Y-%m-%d")
+        for(i in 1:nrow(futureTrades)){
+                symbolsvector=unlist(strsplit(futureTrades$symbol[i],"_"))
+                allsize = folots[folots$symbol == symbolsvector[1], ]
+                futureTrades$size[i]=getcontractsize(futureTrades$entrytime[i],allsize)
+                if(as.numeric(futureTrades$exittime[i])==0){
+                        futureTrades$exittime[i]=novalue
+                }
+        }
+        
+        futureTrades$entrybrokerage=ifelse(futureTrades$entryprice==0,0,ifelse(grepl("BUY",futureTrades$trade),kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*kValueBrokerage,kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*(kValueBrokerage+kSTTSell)))
+        futureTrades$exitbrokerage=ifelse(futureTrades$exitprice==0,0,ifelse(grepl("BUY",futureTrades$trade),kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*kValueBrokerage,kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*(kValueBrokerage+kSTTSell)))
+        futureTrades$brokerageamount=futureTrades$exitbrokerage+futureTrades$entrybrokerage
+        futureTrades$brokerage=futureTrades$brokerageamount/((futureTrades$entryprice+futureTrades$exitprice)*futureTrades$size)
+        futureTrades$percentprofit<-ifelse(grepl("BUY",futureTrades$trade),(futureTrades$exitprice-futureTrades$entryprice)/futureTrades$entryprice,-(futureTrades$exitprice-futureTrades$entryprice)/futureTrades$entryprice)
+        futureTrades$percentprofit<-ifelse(futureTrades$exitprice==0|futureTrades$entryprice==0,0,futureTrades$percentprofit)
+        futureTrades$netpercentprofit <- futureTrades$percentprofit - futureTrades$brokerage
+        futureTrades$pnl<-ifelse(futureTrades$exitprice==0|futureTrades$entryprice==0,0,futureTrades$entryprice*futureTrades$netpercentprofit*futureTrades$size)
+        
+        # add sl and tp levels to trade
+        futureTrades.plus.signals<-merge(futureTrades,signals,by.x=c("entrytime","cashsymbol"),by.y=c("date","symbol"))
+        shortlisted.columns<-c("symbol","trade","entrytime","entryprice","exittime","exitprice","exitreason","percentprofit",
+                               "bars","size","brokerage","netpercentprofit","pnl","sl.level","splitadjust")
+        futureTrades<-futureTrades.plus.signals[,shortlisted.columns]
+        names(futureTrades)[names(futureTrades) == 'splitadjust'] <- 'entry.splitadjust'
+        futureTrades$cashsymbol<-sapply(strsplit(futureTrades$symbol,"_"),"[",1)
+        futureTrades.plus.signals<-merge(futureTrades,signals[,!names(signals)%in%c("sl.level","tp.level")],by.x=c("exittime","cashsymbol"),by.y=c("date","symbol"),all.x = TRUE)
+        shortlisted.columns<-c("symbol","trade","entrytime","entryprice","exittime","exitprice","exitreason","percentprofit",
+                               "bars","size","brokerage","netpercentprofit","pnl","sl.level","entry.splitadjust","splitadjust")
+        futureTrades<-futureTrades.plus.signals[,shortlisted.columns]
+        names(futureTrades)[names(futureTrades) == 'splitadjust'] <- 'exit.splitadjust'
+        futureTrades$exit.splitadjust<-ifelse(is.na(futureTrades$exit.splitadjust),1,futureTrades$exit.splitadjust)
+        
+        # Adjust exit price for any splits during trade
+        # uncomment the next line only for futures
+        # futureTrades$exitprice=futureTrades$exitprice*futureTrades$entry.splitadjust/futureTrades$exit.splitadjust
+        futureTrades$percentprofit=ifelse(grepl("SHORT",futureTrades$trade),specify_decimal((futureTrades$entryprice-futureTrades$exitprice)/(futureTrades$entryprice),2),specify_decimal((futureTrades$exitprice-futureTrades$entryprice)/(futureTrades$entryprice),2))
+        futureTrades$entrybrokerage=ifelse(futureTrades$entryprice==0,0,ifelse(grepl("BUY",futureTrades$trade),kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*kValueBrokerage,kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*(kValueBrokerage+kSTTSell)))
+        futureTrades$exitbrokerage=ifelse(futureTrades$exitprice==0,0,ifelse(grepl("BUY",futureTrades$trade),kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*kValueBrokerage,kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*(kValueBrokerage+kSTTSell)))
+        futureTrades$brokerageamount=futureTrades$exitbrokerage+futureTrades$entrybrokerage
+        futureTrades$brokerage=futureTrades$brokerageamount/((futureTrades$entryprice+futureTrades$exitprice)*futureTrades$size)
+        futureTrades$percentprofit<-ifelse(futureTrades$exitprice==0|futureTrades$entryprice==0,0,futureTrades$percentprofit)
+        futureTrades$netpercentprofit <- futureTrades$percentprofit - futureTrades$brokerage
+        futureTrades$pnl<-ifelse(futureTrades$exitprice==0|futureTrades$entryprice==0,0,futureTrades$entryprice*futureTrades$netpercentprofit*futureTrades$size)
+        
+}
+print(filter(futureTrades,exitreason=="Open"))
+#### WRITE TO REDIS ####
+if(!kBackTest && args[1]==2 && kWriteToRedis & nrow(futureTrades)>0){
+        levellog(logger, "INFO", paste("Starting scan for writing to Redis for ",args[2], sep = ""))
+        saveRDS(futureTrades,paste("futureTrades","_",strftime(Sys.time(),,format="%Y-%m-%d %H-%M-%S"),".rds",sep=""))
+        # referencetime=as.POSIXlt(Sys.time(),tz=kTimeZone)
+        # referencetime$hour=0
+        # referencetime$min=0
+        # referencetime$sec=0
+        # referencetime=as.POSIXct(referencetime)
+        referencetime=as.POSIXct(today,tz=kTimeZone)
+        order=data.frame( OrderType="CUSTOMREL",
+                          OrderStage="INIT",
+                          TriggerPrice="0",
+                          Scale="FALSE",
+                          OrderReference=tolower(args[2]),
+                          stringsAsFactors = FALSE)
+        placeRedisOrder(futureTrades,referencetime,order,args[3])
+}
+
+if(args[1]==1 & kWriteToRedis){
+        # write sl and tp levels on BOD
+        # update strategy
+        levellog(logger, "INFO", paste("Starting scan for sl and tp update for ",args[2], sep = ""))
+        strategyTrades<-createPNLSummary(args[3],paste("*trades*",tolower(kUnderlyingStrategy),"*",sep=""),kBackTestStartDate,kBackTestEndDate,mdpath=NULL,deriv=TRUE)
+        opentrades.index<-which(is.na(strategyTrades$exittime))
+        if(length(opentrades.index)>0){
+                opentrades.index<-sort(opentrades.index)
+                for(i in 1:length(opentrades.index)){
+                        ind<-opentrades.index[i]
+                        symbol<-strsplit(strategyTrades[ind,c("symbol")],"_")[[1]][1]
+                        signals.symbol<-signals[signals$symbol==paste(symbol,"_STK___",sep=""),]
+                        signals.symbol<-signals.symbol[order(signals.symbol$date),]
+                        df<-signals.symbol[nrow(signals.symbol),]
+                        trade.sl<-df$sl.level
+                        trade.tp<-df$tp.level
+                        if(length(trade.tp)>0){
+                                #                               rredis::redisHSet(strategyTrades[ind,c("key")],"StopLoss",charToRaw(as.character(trade.sl)))
+                                rredis::redisHSet(strategyTrades[ind,c("key")],"TakeProfit",charToRaw(as.character(trade.tp)))
+                        }
+                }
+        }
+        # update execution
+        strategyTrades<-createPNLSummary(0,paste("*trades*",tolower(kUnderlyingStrategy),"*",sep=""),kBackTestStartDate,kBackTestEndDate,mdpath=NULL,deriv=TRUE)
+        opentrades.index<-which(is.na(strategyTrades$exittime))
+        if(length(opentrades.index)>0){
+                opentrades.index<-sort(opentrades.index)
+                for(i in 1:length(opentrades.index)){
+                        ind<-opentrades.index[i]
+                        symbol<-strsplit(strategyTrades[ind,c("symbol")],"_")[[1]][1]
+                        signals.symbol<-signals[signals$symbol==paste(symbol,"_STK___",sep=""),]
+                        signals.symbol<-signals.symbol[order(signals.symbol$date),]
+                        df<-signals.symbol[nrow(signals.symbol),]
+                        trade.sl<-df$sl.level
+                        trade.tp<-df$tp.level
+                        if(length(trade.tp)>0){
+                                rredis::redisHSet(strategyTrades[ind,c("key")],"TakeProfit",charToRaw(as.character(trade.tp)))
+                        }
+                        
+                }
+        }
+}
+
+#### BACKTEST ####
+if(kBackTest){
         bizdays=unique(signals$date)
         bizdays=bizdays[bizdays>=as.POSIXct(kBackTestStartDate,tz=kTimeZone) & bizdays<=as.POSIXct(kBackTestEndDate,tz=kTimeZone)]
         pnl<-data.frame(bizdays,realized=0,unrealized=0,brokerage=0)
@@ -349,8 +461,8 @@ if(FALSE){
         trades$netpercentprofit <- trades$percentprofit - trades$brokerage/(trades$entryprice+trades$exitprice)/2
         trades$abspnl=ifelse(trades$trade=="BUY",trades$size*(trades$exitprice-trades$entryprice),-trades$size*(trades$exitprice-trades$entryprice))-trades$entrybrokerage-trades$exitbrokerage
         trades$abspnl=ifelse(trades$exitprice==0,0,trades$abspnl)
-        cumpnl<-CalculateDailyPNL(trades,pnl,kNiftyDataFolder,trades$brokerage,deriv=FALSE)
-        cumpnl$idlecash=kMaxContracts*kTradeSize-cumpnl$cashdeployed
+        cumpnl<-CalculateDailyPNL(trades,pnl,trades$brokerage,deriv=FALSE)
+        cumpnl$idlecash=kMaxPositions*kTradeSize-cumpnl$cashdeployed
         cumpnl$daysdeployed=as.numeric(c(diff.POSIXt(cumpnl$bizdays),0))
         cumpnl$investmentreturn=ifelse(cumpnl$idlecash>0,cumpnl$idlecash*cumpnl$daysdeployed*0.06/365,-cumpnl$idlecash*cumpnl$daysdeployed*0.2/365)
         
@@ -391,112 +503,50 @@ if(FALSE){
         print(paste("Avg % Profit Per Trade:",sum(shorttrades$abspnl)*100/nrow(shorttrades)/kTradeSize))
         print(paste("Avg Holding Days:",sum(shorttrades$bars)/nrow(shorttrades)))
 }
-
-
-if(TRUE){
-        #### Handle Derivaties Mapping ####
-        if(nrow(trades)>0){
-                trades$entrymonth <- as.Date(sapply(trades$entrytime, getExpiryDate), tz = kTimeZone)
-                nextexpiry <- as.Date(sapply(as.Date(trades$entrymonth + 20, tz = kTimeZone), getExpiryDate), tz = kTimeZone)
-                trades$entrycontractexpiry <- as.Date(ifelse(businessDaysBetween("India",as.Date(trades$entrytime, tz = kTimeZone),trades$entrymonth) < 1,nextexpiry,trades$entrymonth),tz = kTimeZone)
-                trades$exitmonth <- as.Date(sapply(trades$exittime, getExpiryDate), tz = kTimeZone)
-                nextexpiry <- as.Date(sapply(as.Date(trades$exitmonth + 20, tz = kTimeZone), getExpiryDate), tz = kTimeZone)
-                trades$exitcontractexpiry <- as.Date(ifelse(businessDaysBetween("India",as.Date(trades$exittime, tz = kTimeZone),trades$exitmonth) < 1,nextexpiry,trades$exitmonth),tz = kTimeZone)
-                trades<-getStrikeByClosestSettlePrice(trades,kFNODataFolder,kNiftyDataFolder,kTimeZone)
-                futureTrades<-MapToFutureTrades(trades,kFNODataFolder,kNiftyDataFolder,rollover=TRUE)
+#### RECONCILE WITH REDIS ####
+if(!kBackTest){
+        pattern=paste("*trades*",tolower(args[2]),"*",sep="")
+        actualRedis=RTrade::createPNLSummary(args[3],pattern,kBackTestStartDate,kBackTestEndDate)
+        actualRedis=actualRedis[actualRedis$netposition!=0,]
+        redispositions=aggregate(netposition~symbol,actualRedis,FUN=sum)
+        strategyPositions=filter(futureTrades,exitreason=="Open")
+        strategyPositions$size=ifelse(strategyPositions$trade=="BUY",strategyPositions$size,-strategyPositions$size)
+        if(nrow(strategyPositions>0)){
+                strategyPositions=aggregate(size~symbol,strategyPositions,FUN=sum)
+        }else{
+                strategyPositions=data.frame(symbol=character(),size=numeric())
+        }
+        positions=merge(redispositions,strategyPositions,all.x = TRUE,all.y = TRUE)
+        positions$netposition=ifelse(is.na(positions$netposition),0,positions$netposition)
+        positions$size=ifelse(is.na(positions$size),0,positions$size)
+        names(positions)=c("symbol","RedisPosition","StrategyRequirement")
+        excessInRedis=filter(positions,(RedisPosition>0 & RedisPosition > StrategyRequirement)| (RedisPosition<0 & RedisPosition < StrategyRequirement))
+        excessInRedis$excess=excessInRedis$RedisPosition-excessInRedis$StrategyRequirement
+        if(nrow(excessInRedis)>0){
+                body= paste0("<p> The following positions are superflous to strategy and should be immediately corrected manually:",args[2],". </p>", tableHTML(excessInRedis))
+                mime() %>%
+                        to("psharma@incurrency.com") %>%
+                        from("reporting@incurrency.com") %>%
+                        subject(paste0("Positions as per execution logs that are NOT MANAGED by strategy ",args[2])) %>% 
+                        html_body(body) %>% 
+                        send_message()
         }
         
-        #### update size and calculate pnl ####
-        if(nrow(trades)>0 && nrow(futureTrades)>0){
-                futureTrades <- futureTrades[order(futureTrades$entrytime), ]
-                futureTrades$cashsymbol<-sapply(strsplit(futureTrades$symbol,"_"),"[",1)
-                getcontractsize <- function (x, size) {
-                        a <- size[size$startdate <= as.Date(x) & size$enddate >= as.Date(x), ]
-                        if (nrow(a) > 0) {
-                                a <- head(a, 1)
-                        }
-                        if (nrow(a) > 0) {
-                                return(a$contractsize)
-                        } else
-                                return(0)
-                }
-                
-                futureTrades$entrysize=NULL
-                novalue=strptime(NA_character_,"%Y-%m-%d")
-                for(i in 1:nrow(futureTrades)){
-                        symbolsvector=unlist(strsplit(futureTrades$symbol[i],"_"))
-                        allsize = folots[folots$symbol == symbolsvector[1], ]
-                        futureTrades$size[i]=getcontractsize(futureTrades$entrytime[i],allsize)
-                        if(as.numeric(futureTrades$exittime[i])==0){
-                                futureTrades$exittime[i]=novalue
-                        }
-                }
-                
-                futureTrades$entrybrokerage=ifelse(futureTrades$entryprice==0,0,ifelse(grepl("BUY",futureTrades$trade),kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*kValueBrokerage,kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*(kValueBrokerage+kSTTSell)))
-                futureTrades$exitbrokerage=ifelse(futureTrades$exitprice==0,0,ifelse(grepl("BUY",futureTrades$trade),kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*kValueBrokerage,kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*(kValueBrokerage+kSTTSell)))
-                futureTrades$brokerageamount=futureTrades$exitbrokerage+futureTrades$entrybrokerage
-                futureTrades$brokerage=futureTrades$brokerageamount/((futureTrades$entryprice+futureTrades$exitprice)*futureTrades$size)
-                futureTrades$percentprofit<-ifelse(grepl("BUY",futureTrades$trade),(futureTrades$exitprice-futureTrades$entryprice)/futureTrades$entryprice,-(futureTrades$exitprice-futureTrades$entryprice)/futureTrades$entryprice)
-                futureTrades$percentprofit<-ifelse(futureTrades$exitprice==0|futureTrades$entryprice==0,0,futureTrades$percentprofit)
-                futureTrades$netpercentprofit <- futureTrades$percentprofit - futureTrades$brokerage
-                futureTrades$pnl<-ifelse(futureTrades$exitprice==0|futureTrades$entryprice==0,0,futureTrades$entryprice*futureTrades$netpercentprofit*futureTrades$size)
-                
-                ### add sl and tp levels to trade
-                futureTrades.plus.signals<-merge(futureTrades,signals,by.x=c("entrytime","cashsymbol"),by.y=c("date","symbol"))
-                shortlisted.columns<-c("symbol","trade","entrytime","entryprice","exittime","exitprice","exitreason","percentprofit",
-                                       "bars","size","brokerage","netpercentprofit","pnl","sl.level","splitadjust")
-                futureTrades<-futureTrades.plus.signals[,shortlisted.columns]
-                names(futureTrades)[names(futureTrades) == 'splitadjust'] <- 'entry.splitadjust'
-                futureTrades$cashsymbol<-sapply(strsplit(futureTrades$symbol,"_"),"[",1)
-                futureTrades.plus.signals<-merge(futureTrades,signals[,!names(signals)%in%c("sl.level","tp.level")],by.x=c("exittime","cashsymbol"),by.y=c("date","symbol"),all.x = TRUE)
-                shortlisted.columns<-c("symbol","trade","entrytime","entryprice","exittime","exitprice","exitreason","percentprofit",
-                                       "bars","size","brokerage","netpercentprofit","pnl","sl.level","entry.splitadjust","splitadjust")
-                futureTrades<-futureTrades.plus.signals[,shortlisted.columns]
-                names(futureTrades)[names(futureTrades) == 'splitadjust'] <- 'exit.splitadjust'
-                futureTrades$exit.splitadjust<-ifelse(is.na(futureTrades$exit.splitadjust),1,futureTrades$exit.splitadjust)
-                
-                # Adjust exit price for any splits during trade
-                # uncomment the next line only for futures
-                # futureTrades$exitprice=futureTrades$exitprice*futureTrades$entry.splitadjust/futureTrades$exit.splitadjust
-                futureTrades$percentprofit=ifelse(grepl("SHORT",futureTrades$trade),specify_decimal((futureTrades$entryprice-futureTrades$exitprice)/(futureTrades$entryprice),2),specify_decimal((futureTrades$exitprice-futureTrades$entryprice)/(futureTrades$entryprice),2))
-                futureTrades$entrybrokerage=ifelse(futureTrades$entryprice==0,0,ifelse(grepl("BUY",futureTrades$trade),kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*kValueBrokerage,kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*(kValueBrokerage+kSTTSell)))
-                futureTrades$exitbrokerage=ifelse(futureTrades$exitprice==0,0,ifelse(grepl("BUY",futureTrades$trade),kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*kValueBrokerage,kPerContractBrokerage+futureTrades$entryprice*futureTrades$size*(kValueBrokerage+kSTTSell)))
-                futureTrades$brokerageamount=futureTrades$exitbrokerage+futureTrades$entrybrokerage
-                futureTrades$brokerage=futureTrades$brokerageamount/((futureTrades$entryprice+futureTrades$exitprice)*futureTrades$size)
-                futureTrades$percentprofit<-ifelse(futureTrades$exitprice==0|futureTrades$entryprice==0,0,futureTrades$percentprofit)
-                futureTrades$netpercentprofit <- futureTrades$percentprofit - futureTrades$brokerage
-                futureTrades$pnl<-ifelse(futureTrades$exitprice==0|futureTrades$entryprice==0,0,futureTrades$entryprice*futureTrades$netpercentprofit*futureTrades$size)
-                
+        shortInRedis=filter(positions,(StrategyRequirement>0 & RedisPosition < StrategyRequirement)| (StrategyRequirement<0 & RedisPosition > StrategyRequirement))
+        shortInRedis$shortfall=shortInRedis$StrategyRequirement-shortInRedis$RedisPosition
+        if(nrow(shortInRedis)>0){
+                body= paste0("<p> The following positions are required by strategy but not executed as per execution logs:",args[2],". </p>", tableHTML(shortInRedis))
+                mime() %>%
+                        to("psharma@incurrency.com") %>%
+                        from("reporting@incurrency.com") %>%
+                        subject(paste0("Positions that can be executed manually to catch upto to strategy positions ",args[2])) %>% 
+                        html_body(body) %>% 
+                        send_message()
         }
         
-        #### Write to Redis ####
-        if(args[1]==2 && kWriteToRedis & nrow(futureTrades)>0){
-                levellog(logger, "INFO", paste("Starting scan for writing to Redis for ",args[2], sep = ""))
-                saveRDS(futureTrades,paste("futureTrades","_",strftime(Sys.time(),"%Y%m%d %H:%M:%S"),".rds",sep=""))
-                # referencetime=as.POSIXlt(Sys.time(),tz=kTimeZone)
-                # referencetime$hour=0
-                # referencetime$min=0
-                # referencetime$sec=0
-                # referencetime=as.POSIXct(referencetime)
-                referencetime=as.POSIXct(today,tz=kTimeZone)
-                order=data.frame( OrderType="CUSTOMREL",
-                                  OrderStage="INIT",
-                                  TriggerPrice="0",
-                                  Scale="FALSE",
-                                  OrderReference=tolower(args[2]),
-                                  stringsAsFactors = FALSE)
-                placeRedisOrder(futureTrades,referencetime,order,args[3])
-        }
-        
-        #### Print Open Positions ####
-        print(paste("Profit:",sum(futureTrades$pnl)))
-        print(paste("Win Ratio:",sum(futureTrades$netpercentprofit>0)/nrow(futureTrades)))
-        print(paste("# Trades:",nrow(futureTrades)))
-        print(futureTrades[futureTrades$exitreason=="Open",])
-        filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"trades.csv",sep="_")
-        filename=paste(strftime(Sys.time(),"%Y%m%d %H:%M:%S"),"signals.csv",sep="_")
-
 }
+
+#### PRINT RUN TIME ####
 timer.end=Sys.time()
 runtime=timer.end-timer.start
 print(runtime)

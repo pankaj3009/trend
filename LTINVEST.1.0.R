@@ -51,8 +51,6 @@ kBackTestStartDate=as.character(static$BackTestStartDate)
 kBackTestEndDate=as.character(static$BackTestEndDate)
 kSubscribers=fromJSON(static$Subscribers)
 kBrokerage=fromJSON(static$Brokerage)
-
-args=c("1","LTINVEST01","4")
 #### FUNCTIONS ####
 #### GENERATE SYMBOLS ####
 

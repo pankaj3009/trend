@@ -57,10 +57,8 @@ kBackTestEndDate<-static$BackTestEndDate
 #kBackTestStartDate<-"2017-01-01"
 #kBackTestEndDate<-"2017-12-31"
 kTimeZone <- static$TimeZone
-kValueBrokerage<-as.numeric(static$SingleLegBrokerageAsPercentOfValue)/100
-kPerContractBrokerage=as.numeric(static$SingleLegBrokerageAsValuePerContract)
-kSTTSell=as.numeric(static$SingleLegSTTSell)/100
 kUnderlyingStrategy=as.character(static$UnderlyingStrategy)
+kCommittedCapital=as.numeric(static$CommittedCapital)
 kHomeDirectory=static$HomeDirectory
 kLogFile=static$LogFile
 if(!is.null(kHomeDirectory)){
@@ -70,10 +68,11 @@ strategyname = args[2]
 redisDB = args[3]
 kTradeSize=500000
 kMargin=0.35
-kDerivativeAllocation=1000000
 kInvestmentReturn=0.06
 kOverdraftPenalty=0.2
 kBackTest=as.logical(static$BackTest)
+kSubscribers=fromJSON(static$Subscribers)
+kBrokerage=fromJSON(static$Brokerage)
 
 
 logger <- create.logger()
@@ -348,7 +347,7 @@ if(nrow(trades)>0 && nrow(futureTrades)>0){
                 }
         }
         
-        futureTrades=revalPortfolio(futureTrades,kPerContractBrokerage = kPerContractBrokerage,kSTTSell = kSTTSell,kValueBrokerage = kValueBrokerage,realtime = FALSE)
+        futureTrades=revalPortfolio(futureTrades,kBrokerage,realtime = FALSE)
         # add sl and tp levels to trade
         futureTrades.plus.signals<-merge(futureTrades,signals,by.x=c("entrytime","cashsymbol"),by.y=c("date","symbol"))
         shortlisted.columns<-c("symbol","trade","entrytime","entryprice","exittime","exitprice","exitreason",
@@ -366,7 +365,7 @@ if(nrow(trades)>0 && nrow(futureTrades)>0){
         # Adjust exit price for any splits during trade
         # uncomment the next line only for futures
         # futureTrades$exitprice=futureTrades$exitprice*futureTrades$entry.splitadjust/futureTrades$exit.splitadjust
-  
+        
         
 }
 print(filter(futureTrades,exitreason=="Open"))
@@ -446,7 +445,7 @@ if(kBackTest){
         trades$netpercentprofit <- trades$percentprofit - trades$brokerage/(trades$entryprice+trades$exitprice)/2
         trades$abspnl=ifelse(trades$trade=="BUY",trades$size*(trades$exitprice-trades$entryprice),-trades$size*(trades$exitprice-trades$entryprice))-trades$entrybrokerage-trades$exitbrokerage
         trades$abspnl=ifelse(trades$exitprice==0,0,trades$abspnl)
-        cumpnl<-CalculateDailyPNL(trades,pnl,trades$brokerage,deriv=FALSE)
+        cumpnl<-CalculateDailyPNL(trades,pnl,kBrokerage,deriv=FALSE)
         cumpnl$idlecash=kMaxPositions*kTradeSize-cumpnl$cashdeployed
         cumpnl$daysdeployed=as.numeric(c(diff.POSIXt(cumpnl$bizdays),0))
         cumpnl$investmentreturn=ifelse(cumpnl$idlecash>0,cumpnl$idlecash*cumpnl$daysdeployed*0.06/365,-cumpnl$idlecash*cumpnl$daysdeployed*0.2/365)
@@ -490,127 +489,8 @@ if(kBackTest){
 }
 #### EXECUTION SUMMARY ####
 if(!kBackTest){
-        # Metrics
-        
-        # 1.1 Strategy Metrics
-        futureTrades=revalPortfolio(futureTrades,kPerContractBrokerage,kValueBrokerage,kSTTSell,TRUE)
-        exittime=futureTrades$exittime[!is.na(futureTrades$exittime)]
-        BackTestEndTime=max(exittime)
-        bizdays=unique(signals$date)
-        bizdays=bizdays[bizdays>=as.POSIXct(kBackTestStartDate,tz=kTimeZone) & bizdays<=as.POSIXct(kBackTestEndDate,tz=kTimeZone)]
-        pnl<-data.frame(bizdays,realized=0,unrealized=0,brokerage=0)
-        cumpnl<-CalculateDailyPNL(futureTrades,pnl,futureTrades$brokerageamount/futureTrades$size,margin=kMargin,marginOnUnrealized = TRUE)
-        cumpnl$idlecash=kDerivativeAllocation-cumpnl$cashdeployed
-        cumpnl$daysdeployed=as.numeric(c(diff.POSIXt(cumpnl$bizdays),0))
-        cumpnl$investmentreturn=ifelse(cumpnl$idlecash>0,cumpnl$idlecash*cumpnl$daysdeployed*kInvestmentReturn/365,-cumpnl$idlecash*cumpnl$daysdeployed*kOverdraftPenalty/365)
-        cumpnl$investmentreturn=cumsum(cumpnl$investmentreturn)
-        
-        pnl <-  cumpnl$realized + cumpnl$unrealized - cumpnl$brokerage + cumpnl$investmentreturn
-        dailypnl <-  pnl - Ref(pnl, -1)
-        dailypnl <-  ifelse(is.na(dailypnl),0,dailypnl)
-        dailyreturn <-  ifelse(cumpnl$longnpv +cumpnl$shortnpv== 0, 0,dailypnl / kDerivativeAllocation)
-        sharpe <- sharpe(dailyreturn)
-        sharpe=formatC(sharpe,format="f",digits=2)
-        
-        cumpnl$cashflow[nrow(cumpnl)]=cumpnl$cashflow[nrow(cumpnl)]+(cumpnl$longnpv+cumpnl$shortnpv)[nrow(cumpnl)]*kMargin
-        xirr=xirr(cumpnl$cashflow,cumpnl$bizdays,trace = TRUE)*100
-        xirr=formatC(xirr,format="f",digits=2) 
-        xirr=paste0(xirr,"%")
-        
-        daysOfStrategy=as.numeric(min(Sys.Date(),kBackTestEndDate)) - as.numeric(as.Date(kBackTestStartDate))
-        annualizedSimpleReturn=formatC(sum(futureTrades$pnl)*36500/(daysOfStrategy*kDerivativeAllocation),format="f",digits=2) 
-        annualizedSimpleReturn=paste0(annualizedSimpleReturn,"%")
-        
-        WinRatio=sum(futureTrades$pnl>0)*100/nrow(futureTrades)
-        WinRatio=paste0(specify_decimal(WinRatio,2),"%")
-        
-        Metrics=c("Net Profit","Annual Return (Simple)", "IRR","Sharpe","Win Ratio")
-        Strategy=c(formatC(specify_decimal(sum(futureTrades$pnl),0),format="d",big.mark = ","),annualizedSimpleReturn,xirr,sharpe,WinRatio)
-        Metrics=cbind(Metrics,Strategy)
-        
-        # 1.2 Execution metrics
-        pattern=paste("*trades*",tolower(args[2]),"*",sep="")
-        actualRedis=createPNLSummary(0,pattern,kBackTestStartDate,kBackTestEndDate)
-        actualRedis=revalPortfolio(actualRedis,kPerContractBrokerage,kValueBrokerage,kSTTSell,TRUE)
-        bizdays=unique(signals$date)
-        bizdays=bizdays[bizdays>=as.POSIXct(kBackTestStartDate,tz=kTimeZone) & bizdays<=as.POSIXct(kBackTestEndDate,tz=kTimeZone)]
-        pnl<-data.frame(bizdays,realized=0,unrealized=0,brokerage=0)
-        cumpnl<-CalculateDailyPNL(actualRedis,pnl,actualRedis$brokerage/actualRedis$size,margin=kMargin,marginOnUnrealized = TRUE)
-        cumpnl$idlecash=kDerivativeAllocation-cumpnl$cashdeployed
-        cumpnl$daysdeployed=as.numeric(c(diff.POSIXt(cumpnl$bizdays),0))
-        cumpnl$investmentreturn=ifelse(cumpnl$idlecash>0,cumpnl$idlecash*cumpnl$daysdeployed*kInvestmentReturn/365,-cumpnl$idlecash*cumpnl$daysdeployed*kOverdraftPenalty/365)
-        cumpnl$investmentreturn=cumsum(cumpnl$investmentreturn)
-        
-        pnl <-  cumpnl$realized + cumpnl$unrealized - cumpnl$brokerage + cumpnl$investmentreturn
-        dailypnl <-  pnl - Ref(pnl, -1)
-        dailypnl <-  ifelse(is.na(dailypnl),0,dailypnl)
-        dailyreturn <-  ifelse(cumpnl$longnpv +cumpnl$shortnpv== 0, 0,dailypnl / kDerivativeAllocation)
-        sharpe <- sharpe(dailyreturn)
-        sharpe=formatC(sharpe,format="f",digits=2)
-        
-        cumpnl$cashflow[nrow(cumpnl)]=cumpnl$cashflow[nrow(cumpnl)]+(cumpnl$longnpv+cumpnl$shortnpv)[nrow(cumpnl)]*kMargin
-        xirr=xirr(cumpnl$cashflow,cumpnl$bizdays,trace = TRUE)*100
-        xirr=formatC(xirr,format="f",digits=2) 
-        xirr=paste0(xirr,"%")
-        
-        daysOfStrategy=as.numeric(min(Sys.Date(),kBackTestEndDate)) - as.numeric(as.Date(kBackTestStartDate))
-        annualizedSimpleReturn=formatC(sum(actualRedis$pnl)*36500/(daysOfStrategy*kDerivativeAllocation),format="f",digits=2) 
-        annualizedSimpleReturn=paste0(annualizedSimpleReturn,"%")
-        
-        WinRatio=sum(actualRedis$pnl>0)*100/nrow(actualRedis)
-        WinRatio=paste0(specify_decimal(WinRatio,2),"%")
-        
-        Execution=c(formatC(specify_decimal(sum(actualRedis$pnl),0),format="d",big.mark = ","),annualizedSimpleReturn,xirr,sharpe,WinRatio)
-        Metrics=cbind(Metrics,Execution)
-        
-        body=paste0("Key Metrics: StartDate=",kBackTestStartDate,", EndDate=",BackTestEndTime,tableHTML(Metrics,border=1),"<br><br>") 
-        
-        # 2.0 Open Trades
-        trades.selected.columns=filter(futureTrades,exitreason=="Open") %>% select(symbol,trade,size,entrytime,entryprice,exittime,mtmprice=exitprice,pnl=pnl)
-        trades.selected.columns$pnl=formatC(specify_decimal(trades.selected.columns$pnl,0),format="d",big.mark = ",")
-        body=paste0(body,"Open Trades Expected by Algorithm",tableHTML(trades.selected.columns,border=1),"<br>")
-        
-        openTrades=filter(actualRedis,is.na(exittime)) %>% select(symbol,trade,size,entrytime,entryprice,exittime,mtmprice=exitprice,pnl=pnl)
-        openTrades$entryprice=specify_decimal(openTrades$entryprice,2)
-        openTrades$pnl=formatC(specify_decimal(openTrades$pnl,0),format="d",big.mark = ",")
-        
-        body= paste0(body,"Open Trades In Algorithm logs.","</p>", tableHTML(openTrades,border = 1),"<br>")
-        
-        
-        # 3.0 Superfluous Trades
-        # Reconcile with Redis - Strategy DB. 
-        actualRedis=RTrade::createPNLSummary(args[3],pattern,kBackTestStartDate,kBackTestEndDate)
-        actualRedis=actualRedis[actualRedis$netposition!=0,]
-        redispositions=aggregate(netposition~symbol,actualRedis,FUN=sum)
-        strategyPositions=filter(futureTrades,exitreason=="Open")
-        strategyPositions$size=ifelse(strategyPositions$trade=="BUY",strategyPositions$size,-strategyPositions$size)
-        strategyPositions=aggregate(size~symbol,strategyPositions,FUN=sum)
-        positions=merge(redispositions,strategyPositions,all.x = TRUE,all.y = TRUE)
-        positions$netposition=ifelse(is.na(positions$netposition),0,positions$netposition)
-        positions$size=ifelse(is.na(positions$size),0,positions$size)
-        names(positions)=c("symbol","RedisPosition","StrategyRequirement")
-        excessInRedis=filter(positions,(RedisPosition>0 & RedisPosition > StrategyRequirement)| (RedisPosition<0 & RedisPosition < StrategyRequirement))
-        excessInRedis$excess=excessInRedis$RedisPosition-excessInRedis$StrategyRequirement
-        
-        if(nrow(excessInRedis)>0){
-                body= paste0(body,"The following positions are superflous to strategy and should be immediately corrected manually:",args[2],".", tableHTML(excessInRedis,border = 1),"<br>")
-        }
-        
-        # 4.0 Catch Up Trades
-        shortInRedis=filter(positions,(StrategyRequirement>0 & RedisPosition < StrategyRequirement)| (StrategyRequirement<0 & RedisPosition > StrategyRequirement))
-        shortInRedis$shortfall=shortInRedis$StrategyRequirement-shortInRedis$RedisPosition
-        if(nrow(shortInRedis)>0){
-                body= paste0(body," The following positions are required by strategy but not executed as per execution logs:",args[2],". </p>", tableHTML(shortInRedis,border=1),"<br>")
-        }
-        
-        mime() %>%
-                to("psharma@incurrency.com") %>%
-                from("reporting@incurrency.com") %>%
-                subject(paste0("Run Summary for ",args[2])) %>% 
-                html_body(body) %>% 
-                send_message()
+        generateExecutionSummary(futureTrades,kBackTestStartDate,kBackTestEndDate,args[2],args[3],kSubscribers,kBrokerage,kCommittedCapital,kMargin = kMargin,kMarginOnUnrealized = TRUE)
 }
-
 
 #### PRINT RUN TIME ####
 timer.end=Sys.time()

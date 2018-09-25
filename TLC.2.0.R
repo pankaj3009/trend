@@ -2,12 +2,8 @@
 
 timer.start=Sys.time()
 library(RTrade)
-library(zoo)
-library(rredis)
 library(log4r)
-library(jsonlite)
 library(TTR)
-library(PerformanceAnalytics)
 library(tableHTML)
 library(gmailr)
 
@@ -28,7 +24,6 @@ if(length(args)>1){
 }else{
         static<-redisHGetAll("TREND-LC")
 }
-
 redisClose()
 newargs<-unlist(strsplit(static$args,","))
 if(length(args)<=1 && length(newargs>1)){
@@ -73,13 +68,13 @@ kOverdraftPenalty=0.2
 kBackTest=as.logical(static$BackTest)
 kSubscribers=fromJSON(static$Subscribers)
 kBrokerage=fromJSON(static$Brokerage)
-
+kRealtime=as.logical(static$Realtime)
 
 logger <- create.logger()
 logfile(logger) <- kLogFile
 level(logger) <- 'INFO'
 
-realtime=TRUE
+kSubscribers$subscribers=as.data.frame(kSubscribers$subscribers)
 today = strftime(Sys.Date(), tz = kTimeZone, format = "%Y-%m-%d")
 holidays=readRDS(paste(datafolder,"static/holidays.rds",sep=""))
 RQuantLib::addHolidays("India",holidays)
@@ -269,7 +264,7 @@ out <- data.frame()
 signals<-data.frame()
 allmd <- list()
 for(i in 1:length(symbols)){
-        df=longshortSignals(symbols[i],realtime)
+        df=longshortSignals(symbols[i],kRealtime)
         df$symbol<-niftysymbols$symbol[grepl(paste("^",symbols[i],"$",sep=""),niftysymbols$symbol)][1]
         if(nrow(signals)==0){
                 signals<-df
@@ -305,17 +300,6 @@ if(!kBackTest){
 
 #### GENERATE TRADES ####
 trades<-ProcessSignals(signals,rep(0,nrow(signals)),signals$tp.level, maxbar=rep(kMaxBars,nrow(signals)),volatilesl = TRUE,volatiletp = TRUE,maxposition=kMaxPositions,scalein=kScaleIn,debug=FALSE)
-trades.open.index=which(trades$exitreason=="Open")
-# update open position mtm price
-if(length(trades.open.index)>0){
-        for(i in 1:length(trades.open.index)){
-                symbol=trades$symbol[trades.open.index[i]]
-                md=loadSymbol(symbol,realtime = realtime)
-                md=md[which(as.Date(md$date,tz=kTimeZone)<=min(as.Date(kBackTestEndDate),Sys.Date())),]
-                trades$exitprice[trades.open.index[i]]=tail(md$settle/md$splitadjust,1)
-        }
-}
-
 #### MAP TO DERIVATIES ####
 if(nrow(trades)>0){
         futureTrades<-MapToFutureTrades(trades,rollover=TRUE)
@@ -489,7 +473,7 @@ if(kBackTest){
 }
 #### EXECUTION SUMMARY ####
 if(!kBackTest){
-        generateExecutionSummary(futureTrades,kBackTestStartDate,kBackTestEndDate,args[2],args[3],kSubscribers,kBrokerage,kCommittedCapital,kMargin = kMargin,kMarginOnUnrealized = TRUE)
+        generateExecutionSummary(futureTrades,unique(signals$date), kBackTestStartDate,kBackTestEndDate,args[2],args[3],kSubscribers,kBrokerage,kCommittedCapital,kMargin = kMargin,kMarginOnUnrealized = TRUE,realtime=TRUE)
 }
 
 #### PRINT RUN TIME ####

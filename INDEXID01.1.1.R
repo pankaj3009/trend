@@ -175,7 +175,6 @@ if(kWriteToRedis && (length(last)==1||(length(which(optionTrades$exittime == bar
         optionTrades$tp=ifelse(grepl("CALL",optionTrades$symbol),optionTrades$tp,0)
         placeRedisOrder(optionTrades,bartime,order,args[3],map=FALSE)
         saveRDS(optionTrades,paste("trades","_",args[2],"_",strftime(Sys.time(),"%Y-%m-%d %H-%M-%S"),".rds",sep=""))
-        
 }
 #### EXECUTION SUMMARY ####
 if(!kBackTest && (length(last)==1||length(which(optionTrades$exittime == bartime & optionTrades$exitreason!="Open"))==1)){

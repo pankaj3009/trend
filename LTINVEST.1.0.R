@@ -2,12 +2,11 @@
 # with potential of outperformance
 timer.start=Sys.time()
 
-library(plyr)
+library(plyr) # used for rbind.fill
 library(RTrade)
-library(quantmod)
+library(log4r)
 library(tableHTML)
 library(gmailr)
-
 
 #### PARAMETERS ####
 args.commandline=commandArgs(trailingOnly=TRUE)
@@ -51,6 +50,12 @@ kBackTestStartDate=as.character(static$BackTestStartDate)
 kBackTestEndDate=as.character(static$BackTestEndDate)
 kSubscribers=fromJSON(static$Subscribers)
 kBrokerage=fromJSON(static$Brokerage)
+kMargin=as.numeric(static$Margin)
+
+kHomeDirectory=static$HomeDirectory
+if(!is.null(kHomeDirectory)){
+        setwd(kHomeDirectory)
+}
 #### FUNCTIONS ####
 #### GENERATE SYMBOLS ####
 
@@ -252,7 +257,7 @@ if(kBackTest){
 
 #### EXECUTION SUMMARY ####
 if(!kBackTest){
-        generateExecutionSummary(trades,kBackTestStartDate,kBackTestEndDate,args[2],args[3],kSubscribers,kBrokerage,kCommittedCapital=kMaxPositions*kTradeSize,kMarginOnUnrealized = FALSE)
+        generateExecutionSummary(trades,unique(signals$date),kBackTestStartDate,kBackTestEndDate,args[2],args[3],kSubscribers,kBrokerage,kCommittedCapital=kMaxPositions*kTradeSize,kMarginOnUnrealized = FALSE,realtime=TRUE)
 }
 #### PRINT RUN TIME ####
 timer.end=Sys.time()

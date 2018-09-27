@@ -129,7 +129,7 @@ signalsBacktest$shortname=sapply(strsplit(signalsBacktest$symbol,"_"),"[",1)
 tradesBacktest=ProcessSignals(signalsBacktest,rep(0,nrow(signalsBacktest)),signalsBacktest$tp,rep(365,nrow(signalsBacktest)),1,debug = FALSE)
 #### MAP TO DERIVATIVES ####
 futureTrades=MapToFutureTrades(tradesBacktest,rollover=TRUE,tz=kTimeZone)
-optionTrades=MapToOptionTradesLO(tradesBacktest,rollover=FALSE,tz=kTimeZone)
+optionTrades=MapToOptionTradesLO(futureTrades,rollover=FALSE,tz=kTimeZone,underlying="FUT")
 optionTrades<-merge(optionTrades,signalsBacktest[,c("date","shortname","tp")],by.x=c("entrytime","shortname"),by.y=c("date","shortname"),all.x = TRUE)
 optionTrades$entry.splitadjust=1
 optionTrades$exit.splitadjust=1

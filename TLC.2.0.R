@@ -331,7 +331,7 @@ if(nrow(trades)>0 && nrow(futureTrades)>0){
                 }
         }
         
-        futureTrades=revalPortfolio(futureTrades,kBrokerage,realtime = FALSE)
+        futureTrades=revalPortfolio(futureTrades,kBrokerage,realtime = TRUE)
         # add sl and tp levels to trade
         futureTrades.plus.signals<-merge(futureTrades,signals,by.x=c("entrytime","cashsymbol"),by.y=c("date","symbol"))
         shortlisted.columns<-c("symbol","trade","entrytime","entryprice","exittime","exitprice","exitreason",

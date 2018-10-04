@@ -294,6 +294,7 @@ x<-sapply(signals$symbol,grep,symbolchange$key)
 potentialnames<-names(x)
 index.symbolchange<-match(signals$symbol,symbolchange$key,nomatch = 1)
 signals$symbol<-ifelse(index.symbolchange>1 & signals$date>=symbolchange$date[index.symbolchange],potentialnames,signals$symbol)
+#signals$cashsymbol=sapply(strsplit(signals$symbol,"_"),"[",1)
 if(!kBackTest){
         saveRDS(signals,paste("signals","_",strftime(Sys.time(),,format="%Y-%m-%d %H-%M-%S"),".rds",sep=""))
 }
@@ -335,13 +336,13 @@ if(nrow(trades)>0 && nrow(futureTrades)>0){
         # add sl and tp levels to trade
         futureTrades.plus.signals<-merge(futureTrades,signals,by.x=c("entrytime","cashsymbol"),by.y=c("date","symbol"))
         shortlisted.columns<-c("symbol","trade","entrytime","entryprice","exittime","exitprice","exitreason",
-                               "bars","size","pnl","sl.level","splitadjust")
+                               "bars","size","pnl","sl.level","splitadjust","cashsymbol")
         futureTrades<-futureTrades.plus.signals[,shortlisted.columns]
         names(futureTrades)[names(futureTrades) == 'splitadjust'] <- 'entry.splitadjust'
-        futureTrades$cashsymbol<-sapply(strsplit(futureTrades$symbol,"_"),"[",1)
+        #futureTrades$cashsymbol<-sapply(strsplit(futureTrades$symbol,"_"),"[",1)
         futureTrades.plus.signals<-merge(futureTrades,signals[,!names(signals)%in%c("sl.level","tp.level")],by.x=c("exittime","cashsymbol"),by.y=c("date","symbol"),all.x = TRUE)
         shortlisted.columns<-c("symbol","trade","entrytime","entryprice","exittime","exitprice","exitreason",
-                               "bars","size","pnl","sl.level","entry.splitadjust","splitadjust")
+                               "bars","size","pnl","sl.level","entry.splitadjust","splitadjust","cashsymbol")
         futureTrades<-futureTrades.plus.signals[,shortlisted.columns]
         names(futureTrades)[names(futureTrades) == 'splitadjust'] <- 'exit.splitadjust'
         futureTrades$exit.splitadjust<-ifelse(is.na(futureTrades$exit.splitadjust),1,futureTrades$exit.splitadjust)
@@ -349,7 +350,8 @@ if(nrow(trades)>0 && nrow(futureTrades)>0){
         # Adjust exit price for any splits during trade
         # uncomment the next line only for futures
         # futureTrades$exitprice=futureTrades$exitprice*futureTrades$entry.splitadjust/futureTrades$exit.splitadjust
-        
+        #futureTrades$cashsymbol=sapply(strsplit(futureTrades$symbol,"_"),"[",1)
+        futureTrades=merge(futureTrades,signals[,c("date","symbol","pattern.complete")],all.x = TRUE,by.x=c("entrytime","cashsymbol"),by.y=c("date","symbol") )
         
 }
 print(filter(futureTrades,exitreason=="Open"))
@@ -376,7 +378,7 @@ if(args[1]==1 & kWriteToRedis){
         # write sl and tp levels on BOD
         # update strategy
         levellog(logger, "INFO", paste("Starting scan for sl and tp update for ",args[2], sep = ""))
-        strategyTrades<-createPNLSummary(args[3],paste("*trades*",tolower(kUnderlyingStrategy),"*",sep=""),kBackTestStartDate,kBackTestEndDate,mdpath=NULL,deriv=TRUE)
+        strategyTrades<-createPNLSummary(args[3],paste("*trades*",tolower(kUnderlyingStrategy),"*",sep=""),kBackTestStartDate,kBackTestEndDate)
         opentrades.index<-which(is.na(strategyTrades$exittime))
         if(length(opentrades.index)>0){
                 opentrades.index<-sort(opentrades.index)
@@ -395,7 +397,7 @@ if(args[1]==1 & kWriteToRedis){
                 }
         }
         # update execution
-        strategyTrades<-createPNLSummary(0,paste("*trades*",tolower(kUnderlyingStrategy),"*",sep=""),kBackTestStartDate,kBackTestEndDate,mdpath=NULL,deriv=TRUE)
+        strategyTrades<-createPNLSummary(0,paste("*trades*",tolower(kUnderlyingStrategy),"*",sep=""),kBackTestStartDate,kBackTestEndDate)
         opentrades.index<-which(is.na(strategyTrades$exittime))
         if(length(opentrades.index)>0){
                 opentrades.index<-sort(opentrades.index)

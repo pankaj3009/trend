@@ -303,6 +303,8 @@ if(!kBackTest){
 trades<-ProcessSignals(signals,rep(0,nrow(signals)),signals$tp.level, maxbar=rep(kMaxBars,nrow(signals)),volatilesl = TRUE,volatiletp = TRUE,maxposition=kMaxPositions,scalein=kScaleIn,debug=FALSE)
 #### MAP TO DERIVATIES ####
 if(nrow(trades)>0){
+        trades$size=0
+        trades=revalPortfolio(trades,kBrokerage)
         futureTrades<-MapToFutureTrades(trades,rollover=TRUE)
 }
 

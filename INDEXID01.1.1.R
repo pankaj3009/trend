@@ -52,6 +52,7 @@ kWriteToRedis=as.logical(static$WriteToRedis)
 logger <- create.logger()
 logfile(logger) <- kLogFile
 level(logger) <- 'INFO'
+args[2]=trimws(args[2])
 # BoilerPlate End #
 holidays=readRDS(paste(datafolder,"static/holidays.rds",sep=""))
 RQuantLib::addHolidays("India",holidays)
@@ -128,8 +129,8 @@ signalsBacktest$shortname=sapply(strsplit(signalsBacktest$symbol,"_"),"[",1)
 #### GENERATE TRADES ####
 tradesBacktest=ProcessSignals(signalsBacktest,rep(0,nrow(signalsBacktest)),signalsBacktest$tp,rep(365,nrow(signalsBacktest)),1,debug = FALSE)
 #### MAP TO DERIVATIVES ####
-futureTrades=MapToFutureTrades(tradesBacktest,rollover=TRUE,tz=kTimeZone)
-optionTrades=MapToOptionTradesLO(futureTrades,rollover=FALSE,tz=kTimeZone,underlying="FUT")
+#futureTrades=MapToFutureTrades(tradesBacktest,rollover=TRUE,tz=kTimeZone)
+optionTrades=MapToOptionTradesLO(tradesBacktest,rollover=FALSE,tz=kTimeZone,underlying="FUT",sourceInstrument = "CASH")
 optionTrades<-merge(optionTrades,signalsBacktest[,c("date","shortname","tp")],by.x=c("entrytime","shortname"),by.y=c("date","shortname"),all.x = TRUE)
 optionTrades$entry.splitadjust=1
 optionTrades$exit.splitadjust=1
@@ -170,6 +171,7 @@ if(kWriteToRedis && (length(last)==1||(length(which(optionTrades$exittime == bar
                           TriggerPrice="0",
                           Scale="FALSE",
                           OrderReference=tolower(args[2]),
+                          OrderTime=Sys.time(),
                           stringsAsFactors = FALSE)
         optionTrades$sl=ifelse(grepl("PUT",optionTrades$symbol),optionTrades$tp,0)
         optionTrades$tp=ifelse(grepl("CALL",optionTrades$symbol),optionTrades$tp,0)

@@ -257,7 +257,7 @@ if(kBackTest){
 
 #### EXECUTION SUMMARY ####
 if(!kBackTest){
-        generateExecutionSummary(trades,unique(signals$date),kBackTestStartDate,kBackTestEndDate,args[2],args[3],kSubscribers,kBrokerage,kCommittedCapital=kMaxPositions*kTradeSize,kMarginOnUnrealized = FALSE,realtime=TRUE)
+        generateExecutionSummary(trades,unique(c(signals$date,as.POSIXct(strftime(Sys.Date(),tz=kTimeZone))) ),kBackTestStartDate,kBackTestEndDate,args[2],args[3],kSubscribers,kBrokerage,kCommittedCapital=kMaxPositions*kTradeSize,kMarginOnUnrealized = FALSE,realtime=TRUE)
 }
 #### PRINT RUN TIME ####
 timer.end=Sys.time()

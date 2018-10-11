@@ -57,6 +57,18 @@ args[2]=trimws(args[2])
 holidays=readRDS(paste(datafolder,"static/holidays.rds",sep=""))
 RQuantLib::addHolidays("India",holidays)
 #today=strftime(Sys.Date(),tz=kTimeZone,format="%Y-%m-%d")
+today=strftime(Sys.Date(),tz=kTimeZone,format="%Y-%m-%d")
+bod<-paste(today, "09:08:00 IST",sep=" ")
+eod<-paste(today, "15:30:00 IST",sep=" ")
+
+if(Sys.time()<bod){
+        args[1]=1
+}else if(Sys.time()<eod){
+        args[1]=2
+}else{
+        args[1]=3
+}
+
 #### FUNCTIONS ####
 INDEXID01generateSignals<-function(longname,realtime,atrperiod,days){
         shortname=strsplit(longname,"_")[[1]][1]
@@ -179,7 +191,7 @@ if(kWriteToRedis && (length(last)==1||(length(which(optionTrades$exittime == bar
         saveRDS(optionTrades,paste("trades","_",args[2],"_",strftime(Sys.time(),"%Y-%m-%d %H-%M-%S"),".rds",sep=""))
 }
 #### EXECUTION SUMMARY ####
-if(!kBackTest && (length(last)==1||length(which(optionTrades$exittime == bartime & optionTrades$exitreason!="Open"))==1)){
+if(!kBackTest && ((length(last)==1||length(which(optionTrades$exittime == bartime & optionTrades$exitreason!="Open"))==1)||args[1]!=2)){
         generateExecutionSummary(optionTrades,unique(as.POSIXct(strftime(signalsBacktest$date,format="%Y-%m-%d"))),kBackTestStartDate,kBackTestEndDate,args[2],args[3],kSubscribers,kBrokerage,kCommittedCapital,kMargin = kMargin,kMarginOnUnrealized = TRUE,intraday=TRUE,realtime=TRUE)
 }
 

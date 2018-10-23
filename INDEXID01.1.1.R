@@ -3,60 +3,27 @@
 timer.start=Sys.time()
 library(RTrade)
 library(log4r)
-library(TTR)
 library(tableHTML)
 library(gmailr)
 options(scipen=999)
 
 #### PARAMETERS ####
-
-# Boilerplate Start #
-args.commandline=commandArgs(trailingOnly=TRUE)
-if(length(args.commandline)>0){
-        args<-args.commandline
+args.commandline = commandArgs(trailingOnly = TRUE)
+if (length(args.commandline) > 0) {
+        args <- args.commandline
 }
 
-redisConnect()
-redisSelect(1)
+### Read Parameters ###
+if (length(args) > 1) {
+        static <- readRDS(paste(tolower(args[2]),".rds",sep=""))
+} else{
+        static <- readRDS("indexid01.rds")
+        args<-c(1,tolower(static$core$kStrategy))
+}
 
-if(length(args)>1){
-        static<-redisHGetAll(toupper(trimws(args[2])))
-}else{
-        static<-redisHGetAll("INDEXID01")
-}
-redisClose()
-newargs<-unlist(strsplit(static$args,","))
-if(length(args)<=1 && length(newargs>1)){
-        args<-newargs
-}
-kMaxPositions=as.numeric(static$MaxPositions)
-kScaleIn=as.numeric(static$ScaleIn)
-kMaxBars=as.numeric(static$MaxBars)
-kWriteToRedis <- as.logical(static$WriteToRedis)
-kBackTestStartDate<-static$BackTestStartDate
-kBackTestEndDate<-static$BackTestEndDate
-kTimeZone <- static$TimeZone
-kCommittedCapital=as.numeric(static$CommittedCapital)
-kHomeDirectory=static$HomeDirectory
-kLogFile=static$LogFile
-if(!is.null(kHomeDirectory)){
-        setwd(kHomeDirectory)
-}
-kMargin=as.numeric(static$Margin)
-kInvestmentReturn=as.numeric(static$InvestmentReturn)
-kOverdraftInterest=as.numeric(static$OverdraftInterest)
-kBackTest=as.logical(static$BackTest)
-kSubscribers=fromJSON(static$Subscribers)
-kBrokerage=fromJSON(static$Brokerage)
-kWriteToRedis=as.logical(static$WriteToRedis)
-logger <- create.logger()
-logfile(logger) <- kLogFile
-level(logger) <- 'INFO'
-args[2]=trimws(args[2])
-# BoilerPlate End #
-holidays=readRDS(paste(datafolder,"static/holidays.rds",sep=""))
-RQuantLib::addHolidays("India",holidays)
-#today=strftime(Sys.Date(),tz=kTimeZone,format="%Y-%m-%d")
+static$core$kBackTestEndDate = strftime(adjust("India", as.Date(static$core$kBackTestEndDate, tz = kTimeZone), bdc = 2), "%Y-%m-%d")
+static$core$kBackTestStartDate = strftime(adjust("India", as.Date(static$core$kBackTestStartDate, tz = kTimeZone), bdc = 0), "%Y-%m-%d")
+
 today=strftime(Sys.Date(),tz=kTimeZone,format="%Y-%m-%d")
 bod<-paste(today, "09:08:00 IST",sep=" ")
 eod<-paste(today, "15:30:00 IST",sep=" ")
@@ -67,6 +34,20 @@ if(Sys.time()<bod){
         args[1]=2
 }else{
         args[1]=3
+}
+
+logger <- create.logger()
+logfile(logger) <- static$core$kLogFile
+level(logger) <- 'INFO'
+levellog(logger, "INFO", "Starting EOD Scan")
+
+holidays=readRDS(paste(datafolder,"static/holidays.rds",sep=""))
+RQuantLib::addHolidays("India",holidays)
+
+if(get_os()=="windows"){
+        setwd(static$core$kHomeDirectoryWindows)
+}else if(get_os()=="linux"){
+        setwd(static$core$kHomeDirectoryLinux)        
 }
 
 #### FUNCTIONS ####
@@ -93,7 +74,8 @@ INDEXID01generateSignals<-function(longname,realtime,atrperiod,days){
         t.intraday$trend.intraday=ifelse(t.intraday$trend!=0,t.intraday$trend,ifelse(BarsSince(t.intraday$trend==1)>BarsSince(t.intraday$trend==-1),1,-1))
         # t.intraday$trend=t.intraday$trend
         md.intraday=merge(md.intraday,t.intraday[,c("date","trend.intraday")],by=c("date"),all.x=TRUE)
-        md.daily$nextday=bizdays::add.bizdays(md.daily$date,1)
+        md.daily$nextday=RQuantLib::advance(calendar = "India",dates=as.Date(strftime(md.daily$date,"%Y-%m-%d")),n=1,timeUnit = 0,bdc=0,emr=FALSE) 
+        #bizdays::add.bizdays(md.daily$date,1)
         md.daily$nextday=as.POSIXct(strptime(as.character(md.daily$nextday),format="%Y-%m-%d",tz="Asia/Kolkata"))
         md.daily$nextday=md.daily$nextday+9*60*60+15*60
         md=merge(md.intraday,md.daily[,c("nextday","side")],by.x=c("date"),by.y=c("nextday"),all.x = TRUE)
@@ -135,14 +117,14 @@ symbols=c("NSENIFTY_IND___")
 #### GENERATE SIGNALS ####
 signalsBacktest=data.frame()
 for(i in 1:length(symbols)){
-        signalsBacktest=INDEXID01generateSignals(symbols[i],TRUE,4,days=7)
+        signalsBacktest=INDEXID01generateSignals(symbols[i],static$core$kRealTime,4,days=7)
 }
 signalsBacktest$shortname=sapply(strsplit(signalsBacktest$symbol,"_"),"[",1)
 #### GENERATE TRADES ####
 tradesBacktest=ProcessSignals(signalsBacktest,rep(0,nrow(signalsBacktest)),signalsBacktest$tp,rep(365,nrow(signalsBacktest)),1,debug = FALSE)
 #### MAP TO DERIVATIVES ####
-#futureTrades=MapToFutureTrades(tradesBacktest,rollover=TRUE,tz=kTimeZone)
-optionTrades=MapToOptionTradesLO(tradesBacktest,rollover=FALSE,tz=kTimeZone,underlying="FUT",sourceInstrument = "CASH")
+futureTrades=MapToFutureTrades(tradesBacktest,rollover=TRUE,tz=static$core$kTimeZone)
+optionTrades=MapToOptionTradesLO(tradesBacktest,rollover=FALSE,tz=static$core$kTimeZone)
 optionTrades<-merge(optionTrades,signalsBacktest[,c("date","shortname","tp")],by.x=c("entrytime","shortname"),by.y=c("date","shortname"),all.x = TRUE)
 optionTrades$entry.splitadjust=1
 optionTrades$exit.splitadjust=1
@@ -158,7 +140,7 @@ getcontractsize <- function (x, size) {
 }
 optionTrades$entrysize=NULL
 novalue=strptime(NA_character_,"%Y-%m-%d")
-folots <- createFNOSize(2, "contractsize", threshold = strftime(as.Date(kBackTestStartDate) -  180))
+folots <- createFNOSize(2, "contractsize", threshold = strftime(as.Date(static$core$kBackTestStartDate) -  180))
 for(i in seq_len(nrow(optionTrades))){
         symbolsvector=unlist(strsplit(optionTrades$symbol[i],"_"))
         allsize = folots[folots$symbol == symbolsvector[1], ]
@@ -167,7 +149,7 @@ for(i in seq_len(nrow(optionTrades))){
                 optionTrades$exittime[i]=novalue
         }
 }        
-optionTrades$size=optionTrades$size*10
+optionTrades$size=optionTrades$size*static$kContractNum
 
 #### WRITE TO REDIS ####
 bartime=as.POSIXlt(Sys.time())
@@ -177,26 +159,25 @@ bartime$sec=0
 bartime=as.POSIXct(bartime)
 bartime=round(bartime,"mins")
 last=which(optionTrades$entrytime==bartime)
-if(kWriteToRedis && (length(last)==1||(length(which(optionTrades$exittime == bartime & optionTrades$exitreason!="Open"))==1))){
+if(static$core$kWriteToRedis && (length(last)==1||(length(which(optionTrades$exittime == bartime & optionTrades$exitreason!="Open"))==1))){
         order=data.frame( OrderType="CUSTOMREL",
                           OrderStage="INIT",
                           TriggerPrice="0",
                           Scale="FALSE",
-                          OrderReference=tolower(args[2]),
-                          OrderTime=Sys.time(),
+                          OrderReference=tolower(static$core$kStrategy),
                           stringsAsFactors = FALSE)
         optionTrades$sl=ifelse(grepl("PUT",optionTrades$symbol),optionTrades$tp,0)
         optionTrades$tp=ifelse(grepl("CALL",optionTrades$symbol),optionTrades$tp,0)
         placeRedisOrder(optionTrades,bartime,order,args[3],map=FALSE)
         saveRDS(optionTrades,paste("trades","_",args[2],"_",strftime(Sys.time(),"%Y-%m-%d %H-%M-%S"),".rds",sep=""))
+        
 }
 #### EXECUTION SUMMARY ####
-if(!kBackTest && ((length(last)==1||length(which(optionTrades$exittime == bartime & optionTrades$exitreason!="Open"))==1)||args[1]!=2)){
-        generateExecutionSummary(optionTrades,unique(as.POSIXct(strftime(signalsBacktest$date,format="%Y-%m-%d"))),kBackTestStartDate,kBackTestEndDate,args[2],args[3],kSubscribers,kBrokerage,kCommittedCapital,kMargin = kMargin,kMarginOnUnrealized = TRUE,intraday=TRUE,realtime=TRUE)
+if(!static$core$kBackTest && (length(last)==1||length(which(optionTrades$exittime == bartime & optionTrades$exitreason!="Open"))==1)){
+        generateExecutionSummary(optionTrades,unique(as.POSIXct(strftime(signalsBacktest$date,format="%Y-%m-%d"))),static$core$kBackTestStartDate,static$core$kBackTestEndDate,static$core$kStrategy,static$core$kSubscribers,static$core$kBrokerage,static$core$kCommittedCapital,static$core$kMargin,kMarginOnUnrealized = TRUE, kInvestmentReturn=static$core$kInvestmentReturn,kOverdraftPenalty=static$core$kOverdraftPenalty,intraday=TRUE,realtime=TRUE)
 }
 
 #### PRINT RUN TIME ####
 timer.end=Sys.time()
 runtime=timer.end-timer.start
 print(runtime)
-

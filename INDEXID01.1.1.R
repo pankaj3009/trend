@@ -179,7 +179,8 @@ if(static$core$kWriteToRedis && (length(last)==1||(length(which(optionTrades$exi
 #### EXECUTION SUMMARY ####
 if((!static$core$kBackTest && (length(last)==1||length(which(optionTrades$exittime == bartime & optionTrades$exitreason!="Open"))==1))||args[1]!=2){
         generateExecutionSummary(optionTrades,unique(as.POSIXct(strftime(signalsBacktest$date,format="%Y-%m-%d"))),static$core$kBackTestStartDate,static$core$kBackTestEndDate,static$core$kStrategy,static$core$kSubscribers,static$core$kBrokerage,static$core$kCommittedCapital,static$core$kMargin,kMarginOnUnrealized = TRUE, kInvestmentReturn=static$core$kInvestmentReturn,kOverdraftPenalty=static$core$kOverdraftPenalty,intraday=TRUE,realtime=TRUE)
-        saveRDS(optionTrades,paste("optionTrades","_",strftime(Sys.time(),,format="%Y-%m-%d %H-%M-%S"),".rds",sep=""))
+        saveRDS(signals,file=paste("signals_",strftime(Sys.time(),format="%Y-%m-%d %H-%M-%S"),".rds",sep=""))
+        saveRDS(optionTrades,paste("optionTrades","_",strftime(Sys.time(),format="%Y-%m-%d %H-%M-%S"),".rds",sep=""))
 }
 
 #### PRINT RUN TIME ####

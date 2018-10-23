@@ -116,8 +116,12 @@ INDEXID01generateSignals<-function(longname,realtime,atrperiod,days){
 symbols=c("NSENIFTY_IND___")
 #### GENERATE SIGNALS ####
 signalsBacktest=data.frame()
+days=7
+if(args[1]!=2){
+        days=as.numeric(Sys.Date()-as.Date(static$core$kBackTestStartDate))
+}
 for(i in 1:length(symbols)){
-        signalsBacktest=INDEXID01generateSignals(symbols[i],static$core$kRealTime,4,days=7)
+        signalsBacktest=INDEXID01generateSignals(symbols[i],static$core$kRealTime,4,days=days)
 }
 signalsBacktest$shortname=sapply(strsplit(signalsBacktest$symbol,"_"),"[",1)
 #### GENERATE TRADES ####
@@ -173,8 +177,9 @@ if(static$core$kWriteToRedis && (length(last)==1||(length(which(optionTrades$exi
         
 }
 #### EXECUTION SUMMARY ####
-if(!static$core$kBackTest && (length(last)==1||length(which(optionTrades$exittime == bartime & optionTrades$exitreason!="Open"))==1)){
+if((!static$core$kBackTest && (length(last)==1||length(which(optionTrades$exittime == bartime & optionTrades$exitreason!="Open"))==1))||args[1]!=2){
         generateExecutionSummary(optionTrades,unique(as.POSIXct(strftime(signalsBacktest$date,format="%Y-%m-%d"))),static$core$kBackTestStartDate,static$core$kBackTestEndDate,static$core$kStrategy,static$core$kSubscribers,static$core$kBrokerage,static$core$kCommittedCapital,static$core$kMargin,kMarginOnUnrealized = TRUE, kInvestmentReturn=static$core$kInvestmentReturn,kOverdraftPenalty=static$core$kOverdraftPenalty,intraday=TRUE,realtime=TRUE)
+        saveRDS(optionTrades,paste("optionTrades","_",strftime(Sys.time(),,format="%Y-%m-%d %H-%M-%S"),".rds",sep=""))
 }
 
 #### PRINT RUN TIME ####

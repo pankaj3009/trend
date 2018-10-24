@@ -170,8 +170,8 @@ if(static$core$kWriteToRedis && (length(last)==1||(length(which(optionTrades$exi
                           Scale="FALSE",
                           OrderReference=tolower(static$core$kStrategy),
                           stringsAsFactors = FALSE)
-        optionTrades$sl=ifelse(grepl("PUT",optionTrades$symbol),optionTrades$tp,0)
-        optionTrades$tp=ifelse(grepl("CALL",optionTrades$symbol),optionTrades$tp,0)
+#        optionTrades$sl=ifelse(grepl("PUT",optionTrades$symbol),optionTrades$tp,0)
+#        optionTrades$tp=ifelse(grepl("CALL",optionTrades$symbol),optionTrades$tp,0)
         placeRedisOrder(optionTrades,bartime,order,args[3],map=FALSE)
         saveRDS(optionTrades,paste("trades","_",args[2],"_",strftime(Sys.time(),"%Y-%m-%d %H-%M-%S"),".rds",sep=""))
         
